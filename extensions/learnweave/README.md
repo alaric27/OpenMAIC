@@ -4,8 +4,10 @@
 
 ## 文件边界
 
-- `contracts/generated.ts`：由相邻 LearnWeave 的 `packages/contracts/src/templates.ts` 生成，禁止手改。
-- `templates.ts`：五个模板的构建器。练习构建原生 Slide + Quiz，正确答案仅存 Quiz；教学和播放绑定已有场景。
+- `contracts/generated.ts`：由相邻 LearnWeave 的 `packages/contracts/src/templates.ts` 生成，包含协议、能力类型及内置兼容定义，禁止手改；运行时目录以 LearnWeave 已发布标准接口为准。
+- `contracts/template-bindings.ts`、`template-content-rule.ts`：由 LearnWeave 共享源码同步的通用校验与能力类型，禁止手改；LearnWeave 导入与 OpenMAIC 保存／导出复用同一套规则。
+- `standards-client.ts`：读取 LearnWeave 已发布标准及历史版本，校验快照权威性；服务不可用时明确失败，不使用静态目录兜底。
+- `templates.ts`：按共享规范选择已有页面绑定或通用单选构建器；按题干和选项能力组合生成原生 Slide + Quiz，正确答案仅存 Quiz，不按模板名称分支。
 - `validate.ts`：题型、资源绑定及稳定语义指纹。版式修改不改变语义指纹，答案或绑定资源修改需重存模板。
 - `index.ts`：工具入参和模板保存流程；权限、调度及素材检查交给适配层。
 - `adapter.ts`：集中调用 OpenMAIC 内部身份、文档、权限、调度和存储接口，上游接口变化优先检查此文件。工具包装按需加载，`buildLearnWeaveTools` 返回 Promise，由 runner 等待完成后注册。
@@ -54,4 +56,31 @@ pnpm build
 
 本轮基线为 `6e20534fe01e21c69363571b737e3a61f993b3f0`。同步上游时重点检查三个接线点、owner/lease wrapper、asset store、原生 save/load 与迁移机制。依靠仓库真实冲突解决，不把扩展目录误认为已有通用插件框架。工具与保存链路已验收，模型自主规划和整课生成质量仍需单独验证。
 
-本次解耦保持三个既有源码接线点，不引入插件注册框架、不改变模板协议或迁移 SQL/checksum。新增模板优先修改本目录；不能通过移除 owner/lease 校验或写工具登记来减少接线。目录集中和适配层降低维护范围，不承诺上游更新无需兼容检查。
+本次解耦保持三个既有源码接线点，不引入插件注册框架、不改变模板协议或迁移 SQL/checksum。复用已有能力新增活动标准时，在 LearnWeave 管理页面保存草稿并发布，无需在 OpenMAIC 增加模板枚举、名称分支或同步目录；协议和引擎能力变化仍需同步契约；新增交互能力仍需实现原生构建与 LearnWeave 执行支持。不能通过移除 owner/lease 校验或写工具登记来减少接线。目录集中和适配层降低维护范围，不承诺上游更新无需兼容检查。
+
+## 2026-10-22 句型表达首段接线
+
+`lw_read_activities` 现在同时返回 LearnWeave 生成的 `productionSpec` 和工具输入 Schema。`teaching.sentence-expression` 绑定已有课件，保存 `goal`、结构化 `data` 和 `notes`，不生成逐页公共教法。其生产说明与样例来自 LearnWeave 的生成契约；课堂教法、结束校验、记录和顺序推进属于 LearnWeave。
+
+当前已验证实际工具保存、Bundle 导出与 LearnWeave 接入；整课生成质量、受控内容同步编辑和真实语音体验仍需单独验收。
+
+## 2026-10-22 共享规范与通用构建
+
+生产规范 revision=2，活动协议及 manifest 仍为 v1。输入 Schema、保留 ID、题目数量／选项范围／单答案规则、媒体绑定及禁用绑定均由 LearnWeave 提供。工具说明不再独立维护类型要求；TTS 触发、已有音频引用迁移和资源校验均读取共享内容规则，语义指纹保留对所有已有可选绑定字段的覆盖。源课程保存、权限、租约和 pending/ready 协议保持兼容。
+
+布局坐标、原生 Slide／Quiz 创建、音频／图片元素和文字选项仍是 OpenMAIC 的构建能力。已有页面绑定与单选是当前支持的能力；新增能力不能仅添加配置就宣称可执行。契约测试通过注入新的活动 ID、音频题干＋文字选项组合及修改后的选项范围，验证构建和导出校验来自共享规则；该测试类型不属于正式发布目录。
+
+## 2026-10-22 链路规则复查
+
+生产规范 revision=3，新增 LearnWeave 拥有的教学控制、教法选择及播放执行能力声明。OpenMAIC 仅消费生产部分，课堂展示、答题门控、播放与结束仍由 LearnWeave 实现。题目数量、选项范围、文字与答案关系的共享校验同时用于生产前检查、Bundle 和 LearnWeave 导入；无效文字不会先触发 TTS。当前类型名称的特判只存在于 LearnWeave 的标准定义，生产工作流不另行维护一份类型要求。
+
+原生 DSL 构建器、资源归属／格式校验及一致性保存是生产端职责，保留这些实现；共享规范不替代宿主的原生格式和资源权限检查。协议产物由 LearnWeave 同步，仍不得手改。
+
+
+## 2026-10-22 可管理的已发布标准
+
+配置 `LEARNWEAVE_API_URL`（默认 `http://127.0.0.1:3100`）。读取活动、upsert 和 Bundle 导出均请求 `/api/v1/template-standards`，返回当前发布目录及不可变版本历史。草稿不能用于生产；接口不可用或版本未知时明确失败。
+
+`lw_read_activities` 返回 `standards`、当前生产规范和动态输入 Schema。新增活动默认使用当前发布版本，也可显式填写 `templateVersion`；编辑旧活动应根据作者意图保留原版本或完整升级。活动携带官方标准快照，保存和导出校验其内容与已发布版本一致。一个课程可以同时含同 ID 的多个标准版本。
+
+网页管理支持现有能力组合、任务字段约束和标准专用教法；专用教法由 LearnWeave 执行。新标准 ID 不需要重部署 OpenMAIC；新增构建或课堂交互能力仍需要实现代码。正式生产不使用 `compiledStandards()` 兜底，该函数仅供隔离的单元测试构造基线。

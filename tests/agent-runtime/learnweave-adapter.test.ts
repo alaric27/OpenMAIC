@@ -1,3 +1,7 @@
+vi.mock('@/extensions/learnweave/standards-client', async (original) => {
+  const actual = await original<typeof import('@/extensions/learnweave/standards-client')>();
+  return { ...actual, getProductionStandards: async () => actual.compiledStandards() };
+});
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   identify: vi.fn(),

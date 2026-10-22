@@ -6,18 +6,15 @@ description: 为 LearnWeave 制作有明确教学、练习和素材播放节点�
 
 # 儿童英语模板课
 
-先规划一条短而连续的活动路线。三大类为 teaching、practice、media；小类型仅使用工具声明支持的模板。
+LearnWeave 定义课程结构、活动标准和教法；这里负责按规范生产内容、编辑并交付 Bundle。
 
-1. 用 create_stage 建立课程，生成或复用必要素材。教学页与播放页可用原生 generate_scene / patch_stage 构建；图片使用 generate_image 返回的真实保存素材 ID。
-2. 每个活动先调用 lw_read_activities 获取最新 revision，首次为空时 expectedRevision 为 0。
-3. 使用 lw_upsert_activity 登记完整路线，activityId 在改课和重试时保持不变，order 为从 0 开始的活动顺序。
-4. 看图教学使用 teaching.picture-talk，绑定已保存的 contentRef；instructions 只写当前教学目标、短句与提问要求。
-5. 听音选图使用 practice.listen-image：给每个选项提供真实图片 imageSrc、唯一 value、作者标签 label、正确 answer，优先只提供 promptText，由工具合成并保存正式音频；复用时 audioSrc 必须是已保存的音频素材 ID、正式素材地址或同一课程的 /api/classroom-media/ 音频地址（工具自动转存）。图片素材 ID 不能用作音频。不要用生成的 HTML 游戏代替该工具。
-6. 看图选词使用 practice.image-word：提供真实题干 imageSrc、文字选项及 answer。
-7. 独立播放使用 media.audio / media.video，绑定已有 contentRef 和 mediaElementId。教学内的一次短示范仍属于教学，不另切播放模板。
-8. hints 最多三级，maxAttempts 默认建议 3。两种练习由程序判题和推进，无需老师持续在线；不要把答案写进教学台词。
-9. 每个更新使用刚读取的 expectedRevision；仅 REVISION_CONFLICT 需要重读并更新 expectedRevision。retryable:false 时必须按 field / nextAction 修改参数或修复依赖后再调用；repeatedInput:true 表示相同错误已被拦截，停止无效重试。素材错误不能通过重读 revision 解决；缺少有效音频时删除 audioSrc，仅提供 promptText。无法修复时报告阻塞。不能改 activityId 绕过失败而追加重复节点。
-10. 课程第一环节通常为教学欢迎；交替组织短教学、练习组和必要素材。零基础每轮一至两句、只问一个问题，接受单词起步。跟读与提示后作答不能宣称独立掌握。
-11. 最后再次读取活动，确认全部 ready，检查三类节点的顺序。原生课件预览是视觉预览；可点击交互在 LearnWeave 接入后的预览中验证。
+1. 用 create_stage 建立课程后，先调用 lw_read_activities。读取已发布 standards（含准确版本）、productionSpec、activityInput 和当前 revision；使用其中当前支持的目录、字段与样例，不凭记忆选择活动类型。
+2. 根据作者的主题、水平、目标和建议时长，规划有序活动清单。按独立任务划分活动；同一任务的追问、提示和示范可以留在活动内。作者确认后再批量生产素材。
+3. 按返回的规范生成或复用原生课件与正式素材，用 lw_upsert_activity 登记完整活动清单。activityId 在编辑和重试时保持不变，order 是从 0 开始的唯一课堂顺序。
+4. 按返回的 Schema 和内容能力声明填写目标、任务数据、备注与素材绑定。共享教法由 LearnWeave 提供，不能把整段课堂提示词复制进 instructions；不要在工作流中另行维护活动类型清单或字段要求。练习答案只保存在原生 Quiz。
+5. 素材使用真实保存引用。规范要求音频题干且缺少音频时优先提供 promptText 以合成保存；已有 audioSrc 必须是已保存的音频，或同课 /api/classroom-media/ 地址。不得把图片 ID 当音频，不能用 HTML 游戏冒充可执行练习。
+6. 每次更新使用刚读到的 expectedRevision。新增活动采用当前已发布标准版本；编辑旧活动时根据作者意图显式保留 templateVersion 或按新版字段完整升级，不把新旧版本混用。REVISION_CONFLICT 时重读再试；retryable:false 必须按 field / nextAction 修正输入。素材错误不能靠重读 revision 解决；repeatedInput:true 时停止重复原参数。不得换 activityId 绕过失败而追加重复节点。
+7. 修改内容时同步更新任务数据和关联课件，检查示范音频是否仍适用；纯排版修改不改变任务。对改动后的活动重新保存并校验，不能仅凭素材链接还有效就认定一致。
+8. 最后读取活动，确认全部 ready、类型与顺序符合规范，再导出 Bundle。原生课件预览用于检查内容和版式；交互、实时老师、收音、判题、暂停恢复及整课体验在 LearnWeave 中验证。
 
-工具不存在时说明该部署尚未启用 LearnWeave 扩展，不能用普通课件伪装成交付了可操作模板。
+工具不存在时说明该部署尚未启用 LearnWeave 扩展，不能用普通课件伪装成可操作课程。课程按发布顺序执行，上课时的学生回答、帮助和进度由 LearnWeave 管理。

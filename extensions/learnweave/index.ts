@@ -1,3 +1,8 @@
+import {
+  getProductionStandards,
+  resolveStandard,
+  assertManifestStandards,
+} from './standards-client';
 import { Type } from 'typebox';
 import { Value } from 'typebox/value';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
@@ -9,49 +14,24 @@ import {
   type ToolDeps,
 } from './adapter';
 import { learnweaveEnabled } from './config';
-import { templateSchema, type TemplateManifest } from './contracts/generated';
+import { producerInputSchema, type TemplateManifest } from './contracts/generated';
 import { buildActivity, sourceAssetId, type ActivityInput } from './templates';
 import { readTemplates, writeTemplates } from './store';
 import { assertManifestAssets } from './asset-validation';
 import { ActivityInputError } from './errors';
 import { resolveAudioReference } from './audio-reference';
+import { boundAssets, productionInputIssue } from './contracts/template-bindings';
 import { checkedManifest, bindingFingerprint } from './validate';
 
-const MediaRef = Type.String({ minLength: 1, maxLength: 2048 });
 const Id = Type.String({ minLength: 1, maxLength: 128 });
-const params = Type.Object(
-  {
-    stageId: Id,
-    activityId: Type.String({ pattern: '^[A-Za-z0-9_-]{1,64}$' }),
-    templateId: templateSchema.properties.templateId,
-    title: Type.String({ minLength: 1, maxLength: 120 }),
-    order: Type.Integer({ minimum: 0, maximum: 49 }),
-    expectedRevision: Type.Integer({ minimum: 0 }),
-    contentRef: Type.Optional(Id),
-    mediaElementId: Type.Optional(Id),
-    promptText: Type.Optional(Type.String({ minLength: 1, maxLength: 1000 })),
-    audioSrc: Type.Optional(MediaRef),
-    imageSrc: Type.Optional(MediaRef),
-    answer: Type.Optional(Id),
-    options: Type.Optional(
-      Type.Array(
-        Type.Object(
-          {
-            value: Id,
-            label: Type.String({ minLength: 1, maxLength: 500 }),
-            imageSrc: Type.Optional(MediaRef),
-          },
-          { additionalProperties: false },
-        ),
-        { minItems: 2, maxItems: 6 },
-      ),
-    ),
-    hints: templateSchema.properties.hints,
-    instructions: Type.Optional(templateSchema.properties.instructions),
-    maxAttempts: templateSchema.properties.maxAttempts,
+// Keep provider tool signatures stable across registry edits; execution resolves the published ID.
+const params = {
+  ...producerInputSchema,
+  properties: {
+    ...producerInputSchema.properties,
+    templateId: Type.String({ minLength: 1, maxLength: 128 }),
   },
-  { additionalProperties: false },
-);
+};
 const result = (value: unknown, isError = false) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value) }],
   details: value,
@@ -63,10 +43,17 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
     name: 'lw_read_activities',
     label: '读取 LearnWeave 活动',
     description:
-      'Read the template manifest and its revision. Call before creating or changing an activity; absent manifest means expectedRevision 0.',
+      'Read the template manifest, revision and the versioned LearnWeave production specification. Call before planning, creating or changing activities; absent manifest means expectedRevision 0.',
     parameters: Type.Object({ stageId: Id }, { additionalProperties: false }),
     async execute(_id, raw) {
-      return result(await readTemplates((raw as { stageId: string }).stageId));
+      const standards = await getProductionStandards();
+      const row = await readTemplates((raw as { stageId: string }).stageId);
+      return result({
+        ...(row || { revision: 0, manifest: null }),
+        productionSpec: standards.productionSpec,
+        activityInput: standards.producerInputSchema,
+        standards: standards.entries,
+      });
     },
   };
   // Per agent toolset: deterministic input errors must not repeat storage/TTS work.
@@ -89,7 +76,7 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
     name: 'lw_upsert_activity',
     label: '保存模板活动',
     description:
-      'Create/update a typed LearnWeave activity. Stable activityId makes retries safe. Read revision first. practice.listen-image needs options with saved image asset IDs, answer, and audioSrc or promptText (prefer promptText alone for TTS). audioSrc accepts a saved audio asset or a same-course /api/classroom-media/ file, which is imported into the asset pool. Never use image IDs for audio; practice.image-word needs imageSrc, text options and answer. Teaching/media bind an existing contentRef (media also needs mediaElementId). order is the logical activity index. Native slides/quizzes and explicit bindings are saved together as a recoverable operation. For retryable:false errors, change the indicated input before retrying; reading revision does not fix media errors. All hints/instructions are author-only. Native preview is visual; LearnWeave renders real interactions.',
+      'Create/update an activity according to the versioned productionSpec and activityInput returned by lw_read_activities. Stable activityId makes retries safe; read revision first. Use saved assets. Audio may be a saved audio asset or same-course /api/classroom-media/ reference; promptText synthesizes missing required audio. Native content and explicit bindings are saved together. For retryable:false errors, correct inputs before retrying. LearnWeave owns teaching methods, grading and classroom execution. Native preview is visual; LearnWeave renders interactions.',
     parameters: params,
     async execute(_id, raw, signal) {
       if (!Value.Check(params, raw))
@@ -141,6 +128,21 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
             );
           const doc = await deps.store.loadDocument(input.stageId);
           if (!doc) throw new Error('Course not found');
+          const standards = await getProductionStandards();
+          const standard = resolveStandard(standards, input.templateId, input.templateVersion);
+          const inputIssue = productionInputIssue(standard.content, input);
+          if (inputIssue) throw new ActivityInputError('INVALID_ACTIVITY_PARAMETERS', inputIssue);
+          // Pure dry-run: validate the registered activity schema before importing audio or TTS.
+          // This reference is never saved; the final build uses the resolved real asset.
+          buildActivity(
+            {
+              ...input,
+              ...(standard.content.choice?.stimulus === 'audio'
+                ? { audioSrc: 'schema-validation-audio' }
+                : {}),
+            },
+            standard,
+          );
           if (input.audioSrc)
             input.audioSrc = await resolveAudioReference({
               src: input.audioSrc,
@@ -149,7 +151,7 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
               signal: combined,
               fence: deps.fence,
             });
-          if (input.templateId === 'practice.listen-image' && !input.audioSrc && input.promptText)
+          if (standard.content.choice?.stimulus === 'audio' && !input.audioSrc && input.promptText)
             input.audioSrc = await promptAudio(
               input.promptText,
               input.stageId,
@@ -172,25 +174,30 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
             ownerId,
             assets.map((a) => ({ ...a, id: sourceAssetId(a.src) })),
           );
-          const built = buildActivity(input);
+          const built = buildActivity(input, standard);
           let migratedBinding = false;
-          if (input.templateId === 'media.audio') {
+          if (standard.content.builder === 'existing-slide') {
             const page = doc.scenes.find((s) => s.id === input.contentRef);
-            const element =
-              page?.content.type === 'slide'
-                ? page.content.canvas.elements.find((e) => e.id === input.mediaElementId)
-                : undefined;
-            if (element?.type === 'audio') {
-              const id = await resolveAudioReference({
-                src: element.src,
-                stageId: input.stageId,
-                ownerId,
-                signal: combined,
-                fence: deps.fence,
-              });
-              const src = `/api/persistence/assets/${id}/content`;
-              migratedBinding = src !== element.src;
-              element.src = src;
+            const audioIds = new Set(
+              boundAssets(built.activity)
+                .filter((b) => b.kind === 'audio')
+                .map((b) => b.id),
+            );
+            for (const element of page?.content.type === 'slide'
+              ? page.content.canvas.elements.filter((e) => audioIds.has(e.id))
+              : []) {
+              if (element?.type === 'audio') {
+                const id = await resolveAudioReference({
+                  src: element.src,
+                  stageId: input.stageId,
+                  ownerId,
+                  signal: combined,
+                  fence: deps.fence,
+                });
+                const src = `/api/persistence/assets/${id}/content`;
+                migratedBinding = migratedBinding || src !== element.src;
+                element.src = src;
+              }
             }
           }
           const activities = (previous?.manifest.activities || []).filter(
@@ -210,6 +217,7 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
             activities,
           };
           checkedManifest(manifest, doc);
+          assertManifestStandards(manifest, standards);
           // Validate this mutation so other legacy bindings can be repaired one by one.
           // Bundle export still validates every activity before allowing import.
           await assertManifestAssets(ownerId, { ...manifest, activities: [built.activity] }, doc);

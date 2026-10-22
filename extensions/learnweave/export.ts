@@ -1,3 +1,4 @@
+import { getProductionStandards, assertManifestStandards } from './standards-client';
 import type { NextRequest } from 'next/server';
 import {
   withRequestOwner,
@@ -24,6 +25,8 @@ export async function exportBundle(req: NextRequest, stageId: string) {
     const document = await store.loadDocument(stageId);
     if (!document) return ownerNotFound(headers);
     try {
+      const standards = await getProductionStandards();
+      assertManifestStandards(row.manifest, standards);
       checkedManifest(row.manifest, document);
       await assertManifestAssets(ownerId, row.manifest, document);
       if (bindingFingerprint(row.manifest, document) !== row.fingerprint)

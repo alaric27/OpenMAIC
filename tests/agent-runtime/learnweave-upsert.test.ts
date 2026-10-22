@@ -1,3 +1,7 @@
+vi.mock('@/extensions/learnweave/standards-client', async (original) => {
+  const actual = await original<typeof import('@/extensions/learnweave/standards-client')>();
+  return { ...actual, getProductionStandards: async () => actual.compiledStandards() };
+});
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   identify: vi.fn(),
@@ -131,6 +135,36 @@ describe('typed activity saving and retry control', () => {
     expect(await call(args)).toMatchObject({ status: 'ready' });
     expect(args.audioSrc).toBe('/api/classroom-media/course/media/tts-test.wav');
     expect(mocks.audio).not.toHaveBeenCalled();
+  });
+  it('rejects missing image bindings before synthesizing audio or writing state', async () => {
+    const { call, store } = await fixture();
+    expect(
+      await call({
+        ...params(),
+        audioSrc: undefined,
+        promptText: 'apple',
+        options: params().options.map(({ imageSrc: _image, ...option }) => option),
+      }),
+    ).toMatchObject({ code: 'INVALID_ACTIVITY_PARAMETERS', retryable: false });
+    expect(mocks.audio).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
+    expect(store.saveDocument).not.toHaveBeenCalled();
+  });
+  it('rejects blank option text using shared rules before TTS or persistence', async () => {
+    const { call, store } = await fixture();
+    const args = {
+      ...params(),
+      audioSrc: undefined,
+      promptText: 'apple',
+      options: params().options.map((o) => ({ ...o, label: '   ' })),
+    };
+    expect(await call(args)).toMatchObject({
+      code: 'INVALID_ACTIVITY_PARAMETERS',
+      retryable: false,
+    });
+    expect(mocks.audio).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
+    expect(store.saveDocument).not.toHaveBeenCalled();
   });
   it('identifies revision conflicts as retryable without generating audio or saving', async () => {
     mocks.read.mockResolvedValue({ revision: 4 });
