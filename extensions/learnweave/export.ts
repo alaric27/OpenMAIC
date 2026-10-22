@@ -8,6 +8,7 @@ import {
 } from './adapter';
 import { learnweaveEnabled } from './config';
 import { readTemplates } from './store';
+import { assertManifestAssets } from './asset-validation';
 import { checkedManifest, bindingFingerprint } from './validate';
 
 export async function exportBundle(req: NextRequest, stageId: string) {
@@ -24,6 +25,7 @@ export async function exportBundle(req: NextRequest, stageId: string) {
     if (!document) return ownerNotFound(headers);
     try {
       checkedManifest(row.manifest, document);
+      await assertManifestAssets(ownerId, row.manifest, document);
       if (bindingFingerprint(row.manifest, document) !== row.fingerprint)
         throw new Error('原生题目或素材已改变，请在工作台重新保存对应模板活动。');
       const after = await store.readFreshnessManifest(stageId);

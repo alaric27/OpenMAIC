@@ -6,6 +6,7 @@ import type { Queryable } from '@openmaic/storage/document/pg';
 import type { CourseToolDeps } from '@/lib/server/agent-runtime/course-tools';
 import { getServerPersistenceProvider } from '@/lib/persistence/server-provider';
 import { assetPrincipalForOwner } from '@/lib/persistence/owner-assets';
+import { ActivityInputError } from './errors';
 import { fenceOwnerWrite } from '@/lib/persistence/owner-merges';
 
 export { getServerPersistenceProvider };
@@ -29,13 +30,26 @@ export async function wrapTools(tools: AgentTool[], deps: ToolDeps): Promise<Age
   ) as AgentTool[];
 }
 
-export async function assertOwnedAssets(ownerId: string, assets: { id: string; kind: string }[]) {
+export async function assertOwnedAssets(
+  ownerId: string,
+  assets: { id: string; kind: string; field?: string }[],
+) {
   if (!assets.length) return;
   const provider = await getServerPersistenceProvider(process.env.DATABASE_URL ?? '');
   for (const asset of assets) {
     const meta = await provider.assetStore.identify(assetPrincipalForOwner(ownerId), asset.id);
-    if (!meta || !meta.mime.startsWith(asset.kind + '/'))
-      throw new Error('Referenced media must be an owned saved asset of the expected type');
+    if (!meta)
+      throw new ActivityInputError(
+        'ASSET_NOT_OWNED',
+        `Referenced media ${asset.id} must be an owned saved asset.`,
+        asset.field,
+      );
+    if (!meta.mime.startsWith(asset.kind + '/'))
+      throw new ActivityInputError(
+        'ASSET_TYPE_MISMATCH',
+        `Referenced media ${asset.id}: expected type ${asset.kind}/*, received ${meta.mime}. Never use an image asset as audio. For listening TTS, omit audioSrc and supply promptText.`,
+        asset.field,
+      );
   }
 }
 

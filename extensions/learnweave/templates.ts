@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { validateScene } from '@openmaic/dsl';
 import type { Scene } from '@openmaic/dsl';
+import { ActivityInputError } from './errors';
 import type { TemplateActivity } from './contracts/generated';
 
 export interface ActivityInput {
@@ -13,7 +14,7 @@ export interface ActivityInput {
 const escape = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 export function sourceAssetId(src: string) {
   const id = /^[A-Za-z0-9_-]{1,160}$/.test(src) ? src : /^\/api\/persistence\/assets\/([A-Za-z0-9_-]{1,160})\/content$/.exec(src)?.[1];
-  if (!id) throw new Error('Use a saved OpenMAIC asset id; external and temporary URLs are not accepted');
+  if (!id) throw new ActivityInputError('INVALID_ASSET_REFERENCE', 'Use a saved OpenMAIC asset ID or /api/persistence/assets/<id>/content. For listening audio, use a same-course /api/classroom-media/ reference, or omit audioSrc and supply promptText. Do not retry the same unsupported URL.');
   return id;
 }
 const ref = (src: string) => `/api/persistence/assets/${sourceAssetId(src)}/content`;
