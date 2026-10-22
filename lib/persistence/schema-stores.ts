@@ -16,6 +16,7 @@ import type { SchemaMigrationSet } from '@openmaic/storage/pg-migrations';
 import { RUNTIME_PG_MIGRATIONS } from '@openmaic/storage/runtime/pg';
 import { USER_SKILL_PG_MIGRATIONS } from '@openmaic/storage/skill/pg';
 
+import { LEARNWEAVE_MIGRATIONS } from '@/extensions/learnweave/migrations';
 import { OWNER_AGENT_MIGRATIONS } from '@/lib/server/agents/store';
 
 import { GENERATION_RUN_MIGRATIONS } from './generation-runs';
@@ -27,6 +28,7 @@ import { STAGE_META_MIGRATIONS } from './stage-meta';
 import { WORKSPACE_MODEL_CONFIG_MIGRATIONS } from './workspace-model-config';
 
 export const APP_SCHEMA_STORES: readonly SchemaMigrationSet[] = [
+  LEARNWEAVE_MIGRATIONS,
   RUNTIME_PG_MIGRATIONS,
   DOCUMENT_PG_MIGRATIONS,
   STAGE_META_MIGRATIONS,

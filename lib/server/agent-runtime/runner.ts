@@ -19,6 +19,7 @@ import {
 } from '@openmaic/storage';
 
 import { buildAgent } from '@/lib/agent/runtime/build-agent';
+import { buildLearnWeaveTools } from '@/extensions/learnweave';
 import { createCallLlmStreamFn } from '@/lib/agent/runtime/stream-fn';
 import { HOST_AGENT_LIFECYCLE as LIFECYCLE } from '@/lib/agent-runtime/lifecycle';
 import { createLogger } from '@/lib/logger';
@@ -1452,6 +1453,16 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
       abortSignal: abort.signal,
       getActiveSkill: () => activeSkill,
     });
+    const learnweaveTools = await buildLearnWeaveTools({
+      store: ownerScopedStore, stageAccess, ownerId: meta.ownerId,
+      currentOwner, abortSignal: abort.signal,
+      onCheckpoint: (info) => emit(LIFECYCLE.checkpoint, info),
+      fence: async (tx) => {
+        abort.signal.throwIfAborted();
+        await store.assertActiveLease(id, WORKER_ID, attempt, tx);
+        abort.signal.throwIfAborted();
+      },
+    });
     const curriculumTools = buildCurriculumTools({
       store: ownerScopedStore,
       ownerId: meta.ownerId,
@@ -1546,6 +1557,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
             ]
           : []),
         dslTools,
+        learnweaveTools,
         curriculumTools,
         scenePreviewTools,
         materialTools,
@@ -1580,6 +1592,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
         ...MATERIAL_TOOL_NAMES,
         ...(fetchConnection ? ['fetch_url'] : []),
         ...dslTools.map((tool) => tool.name),
+        ...learnweaveTools.map((tool) => tool.name),
         ...scenePreviewTools.map((tool) => tool.name),
         ...CURRICULUM_ALLOWLIST,
         ...ROSTER_TOOL_NAMES,
