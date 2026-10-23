@@ -64,7 +64,7 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
           ),
         ),
         instruction:
-          'Generate each node in this order using its goal and contentRequirements. Save manifest.planSelection with the exact plan ID and revision. Activity IDs must equal node IDs.',
+          'Generate each node in this order using its goal, contentRequirements, task and resolvedConfiguration. Save manifest.planSelection with the exact plan ID and revision. Activity IDs must equal node IDs.',
       });
     },
   };
