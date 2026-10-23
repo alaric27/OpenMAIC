@@ -18,8 +18,6 @@ const SHIPPED: readonly (readonly [
   transaction: boolean,
   checksum: string,
 ])[] = [
-  ['learnweave-templates', 1, 'activity-manifest', true,
-    '1db7bffff569e58426bc6aa4429839c0f5563b5ed95e2ffe61a2e9c596cc9e0d'],
   [
     'runtime',
     1,

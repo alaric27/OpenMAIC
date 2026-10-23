@@ -1,37 +1,14 @@
-import {
-  getProductionStandards,
-  resolveStandard,
-  assertManifestStandards,
-} from './standards-client';
 import { Type } from 'typebox';
-import { Value } from 'typebox/value';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import {
-  wrapTools,
-  runStageMutation,
-  assertOwnedAssets,
-  promptAudio,
-  type ToolDeps,
-} from './adapter';
 import { learnweaveEnabled } from './config';
-import { producerInputSchema, type TemplateManifest } from './contracts/generated';
-import { buildActivity, sourceAssetId, type ActivityInput } from './templates';
-import { readTemplates, writeTemplates } from './store';
-import { assertManifestAssets } from './asset-validation';
-import { ActivityInputError } from './errors';
-import { resolveAudioReference } from './audio-reference';
-import { boundAssets, productionInputIssue } from './contracts/template-bindings';
-import { checkedManifest, bindingFingerprint } from './validate';
-
-const Id = Type.String({ minLength: 1, maxLength: 128 });
-// Keep provider tool signatures stable across registry edits; execution resolves the published ID.
-const params = {
-  ...producerInputSchema,
-  properties: {
-    ...producerInputSchema.properties,
-    templateId: Type.String({ minLength: 1, maxLength: 128 }),
-  },
-};
+import { wrapTools, runStageMutation, type ToolDeps } from './adapter';
+import {
+  readCourse,
+  saveCourse,
+  productionSpec,
+  produceBundle,
+  ProductionError,
+} from './production';
 const result = (value: unknown, isError = false) => ({
   content: [{ type: 'text' as const, text: JSON.stringify(value) }],
   details: value,
@@ -41,256 +18,127 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
   if (!learnweaveEnabled()) return [];
   const read: AgentTool = {
     name: 'lw_read_activities',
-    label: '读取 LearnWeave 活动',
+    label: '读取课程活动',
     description:
-      'Read the template manifest, revision and the versioned LearnWeave production specification. Call before planning, creating or changing activities; absent manifest means expectedRevision 0.',
-    parameters: Type.Object({ stageId: Id }, { additionalProperties: false }),
+      'Read the explicit ordered activity manifest, revision, native scene references and current LearnWeave production specification. Never use prototype template fields. Read before saving.',
+    parameters: Type.Object({ stageId: Type.String({ minLength: 1, maxLength: 128 }) }),
     async execute(_id, raw) {
-      const standards = await getProductionStandards();
-      const row = await readTemplates((raw as { stageId: string }).stageId);
+      const { stageId } = raw as { stageId: string };
+      const document = await deps.store.loadDocument(stageId);
       return result({
-        ...(row || { revision: 0, manifest: null }),
-        productionSpec: standards.productionSpec,
-        activityInput: standards.producerInputSchema,
-        standards: standards.entries,
+        ...((await readCourse(stageId)) || { revision: 0, manifest: null }),
+        productionSpec: await productionSpec(),
+        scenes: document?.scenes.map((s) => ({ id: s.id, title: s.title, type: s.type })),
       });
     },
   };
-  // Per agent toolset: deterministic input errors must not repeat storage/TTS work.
-  const rejected = new Map<string, { signature: string; details: object }>();
-  const signatureOf = (value: unknown): string => {
-    const canonical = (v: unknown): unknown =>
-      Array.isArray(v)
-        ? v.map(canonical)
-        : v && typeof v === 'object'
-          ? Object.fromEntries(
-              Object.entries(v)
-                .filter(([k]) => k !== 'expectedRevision')
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([k, x]) => [k, canonical(x)]),
-            )
-          : v;
-    return JSON.stringify(canonical(value));
-  };
-  const upsert: AgentTool = {
-    name: 'lw_upsert_activity',
-    label: '保存模板活动',
+  const plan: AgentTool = {
+    name: 'lw_read_course_plan',
+    label: '读取课程节点配置',
     description:
-      'Create/update an activity according to the versioned productionSpec and activityInput returned by lw_read_activities. Stable activityId makes retries safe; read revision first. Use saved assets. Audio may be a saved audio asset or same-course /api/classroom-media/ reference; promptText synthesizes missing required audio. Native content and explicit bindings are saved together. For retryable:false errors, correct inputs before retrying. LearnWeave owns teaching methods, grading and classroom execution. Native preview is visual; LearnWeave renders interactions.',
-    parameters: params,
+      'Read the published ordered lesson nodes from LearnWeave before generating native scenes. Call without an ID to list plans; pass exact planId and revision to read goals, content requirements and pinned production templates. Never invent node order.',
+    parameters: Type.Object(
+      {
+        planId: Type.Optional(Type.String()),
+        revision: Type.Optional(Type.Integer({ minimum: 1 })),
+      },
+      { additionalProperties: false },
+    ),
+    async execute(_id, raw) {
+      const { planId, revision } = raw as { planId?: string; revision?: number };
+      const spec = await productionSpec();
+      if (!planId) return result({ plans: spec.plans });
+      const selected = spec.planVersions.find(
+        (p) =>
+          p.value.id === planId &&
+          (revision === undefined
+            ? spec.plans.some((c) => c.value.id === planId && c.revision === p.revision)
+            : p.revision === revision),
+      );
+      if (!selected) return result({ error: '已发布节点配置不存在' }, true);
+      return result({
+        plan: selected,
+        templates: selected.value.nodes.map((n) =>
+          spec.templateVersions.find(
+            (t) => t.value.id === n.templateId && t.revision === n.templateRevision,
+          ),
+        ),
+        instruction:
+          'Generate each node in this order using its goal and contentRequirements. Save manifest.planSelection with the exact plan ID and revision. Activity IDs must equal node IDs.',
+      });
+    },
+  };
+  // Fetch the authoritative JSON Schema, never a bundled copy of LearnWeave's types.
+  // A service outage must not prevent native OpenMAIC tools from being registered.
+  let authoringSchema: Record<string, unknown>;
+  try {
+    authoringSchema = (await productionSpec()).authoringSchema;
+  } catch {
+    return wrapTools([read, plan], deps);
+  }
+  const save: AgentTool = {
+    name: 'lw_save_course',
+    label: '保存课程活动清单',
+    description:
+      'Explicitly save a complete ordered new-protocol course activity manifest. Existing native Scenes must already exist. Read productionSpec.templates: id is the template code, sceneType is the native slide/quiz/interactive/pbl type, and category is teaching/practice/media for organization only. Follow the selected template instructions and teachingProfileId; never infer an executor from its code or category. Set manifest.templateSelections[activityId] to its exact {id,revision}; saving resolves the published template endPolicy and teachingProfileId. Use kind/data, objectiveIds and sceneIds. The activity array is the only classroom sequence. Do not infer answers or transform old templates. Saving also checks the actual export. exportReady=false or isError means the course is not ready: use the returned revision and report to repair the native document and save again. Re-read revision on conflict.',
+    parameters: Type.Object(
+      {
+        stageId: Type.String({ minLength: 1, maxLength: 128 }),
+        expectedRevision: Type.Integer({ minimum: 0 }),
+        manifest: authoringSchema as any,
+      },
+      { additionalProperties: false },
+    ),
     async execute(_id, raw, signal) {
-      if (!Value.Check(params, raw))
-        return result(
-          {
-            code: 'INVALID_ACTIVITY_PARAMETERS',
-            retryable: false,
-            error: 'Invalid activity parameters',
-            fields: [...Value.Errors(params, raw)].map((e) => ({
-              path: e.instancePath,
-              message: e.message,
-            })),
-            nextAction:
-              'Correct the reported fields before retrying. Do not retry unchanged arguments.',
-          },
-          true,
-        );
-      // TTS/reference normalization must not mutate the model's original arguments.
-      const input = structuredClone(raw) as ActivityInput;
-      const key = input.stageId + ':' + input.activityId;
-      const signature = signatureOf(input);
-      const priorError = rejected.get(key);
-      if (priorError?.signature === signature)
-        return result(
-          {
-            ...priorError.details,
-            repeatedInput: true,
-            nextAction:
-              'STOP repeating this call. No save or TTS was attempted. Change the invalid media input; lw_read_activities and expectedRevision changes cannot fix it. If no valid media is available, report the blocker.',
-          },
-          true,
-        );
-      const combined =
-        signal && deps.abortSignal
-          ? AbortSignal.any([signal, deps.abortSignal])
-          : signal || deps.abortSignal;
-      const active = () => combined?.throwIfAborted();
+      const input = raw as { stageId: string; expectedRevision: number; manifest: unknown };
       try {
+        const combined =
+          signal && deps.abortSignal
+            ? AbortSignal.any([signal, deps.abortSignal])
+            : signal || deps.abortSignal;
         return await runStageMutation(combined, async () => {
-          active();
-          const ownerId = await deps.currentOwner();
-          const previous = await readTemplates(input.stageId);
-          if ((previous?.revision ?? 0) !== input.expectedRevision)
-            throw new ActivityInputError(
-              'REVISION_CONFLICT',
-              'Revision changed; call lw_read_activities and retry',
-              'expectedRevision',
-              'Call lw_read_activities, then retry with its revision.',
-            );
-          const doc = await deps.store.loadDocument(input.stageId);
-          if (!doc) throw new Error('Course not found');
-          const standards = await getProductionStandards();
-          const standard = resolveStandard(standards, input.templateId, input.templateVersion);
-          const inputIssue = productionInputIssue(standard.content, input);
-          if (inputIssue) throw new ActivityInputError('INVALID_ACTIVITY_PARAMETERS', inputIssue);
-          // Pure dry-run: validate the registered activity schema before importing audio or TTS.
-          // This reference is never saved; the final build uses the resolved real asset.
-          buildActivity(
-            {
-              ...input,
-              ...(standard.content.choice?.stimulus === 'audio'
-                ? { audioSrc: 'schema-validation-audio' }
-                : {}),
-            },
-            standard,
-          );
-          if (input.audioSrc)
-            input.audioSrc = await resolveAudioReference({
-              src: input.audioSrc,
-              stageId: input.stageId,
-              ownerId,
-              signal: combined,
-              fence: deps.fence,
-            });
-          if (standard.content.choice?.stimulus === 'audio' && !input.audioSrc && input.promptText)
-            input.audioSrc = await promptAudio(
-              input.promptText,
-              input.stageId,
-              ownerId,
-              combined,
-              deps.fence,
-            );
-          const assets = [
-            ...(input.audioSrc ? [{ src: input.audioSrc, kind: 'audio', field: 'audioSrc' }] : []),
-            ...(input.imageSrc ? [{ src: input.imageSrc, kind: 'image', field: 'imageSrc' }] : []),
-            ...(input.options || [])
-              .filter((o) => !!o.imageSrc)
-              .map((o) => ({
-                src: o.imageSrc!,
-                kind: 'image',
-                field: `options[${o.value}].imageSrc`,
-              })),
-          ];
-          await assertOwnedAssets(
-            ownerId,
-            assets.map((a) => ({ ...a, id: sourceAssetId(a.src) })),
-          );
-          const built = buildActivity(input, standard);
-          let migratedBinding = false;
-          if (standard.content.builder === 'existing-slide') {
-            const page = doc.scenes.find((s) => s.id === input.contentRef);
-            const audioIds = new Set(
-              boundAssets(built.activity)
-                .filter((b) => b.kind === 'audio')
-                .map((b) => b.id),
-            );
-            for (const element of page?.content.type === 'slide'
-              ? page.content.canvas.elements.filter((e) => audioIds.has(e.id))
-              : []) {
-              if (element?.type === 'audio') {
-                const id = await resolveAudioReference({
-                  src: element.src,
-                  stageId: input.stageId,
-                  ownerId,
-                  signal: combined,
-                  fence: deps.fence,
-                });
-                const src = `/api/persistence/assets/${id}/content`;
-                migratedBinding = migratedBinding || src !== element.src;
-                element.src = src;
-              }
-            }
-          }
-          const activities = (previous?.manifest.activities || []).filter(
-            (a) => a.id !== input.activityId,
-          );
-          activities.splice(Math.min(input.order, activities.length), 0, built.activity);
-          if (built.scenes.length) {
-            const replacement = new Set(built.scenes.map((s) => s.id));
-            doc.scenes = [
-              ...doc.scenes.filter((s) => !replacement.has(s.id)),
-              ...built.scenes,
-            ].sort((a, b) => a.order - b.order);
-          }
-          const manifest: TemplateManifest = {
-            schemaVersion: 1,
-            revision: input.expectedRevision + 1,
-            activities,
-          };
-          checkedManifest(manifest, doc);
-          assertManifestStandards(manifest, standards);
-          // Validate this mutation so other legacy bindings can be repaired one by one.
-          // Bundle export still validates every activity before allowing import.
-          await assertManifestAssets(ownerId, { ...manifest, activities: [built.activity] }, doc);
-          const pending = await writeTemplates(
+          const saved = await saveCourse(
+            await deps.currentOwner(),
             input.stageId,
-            ownerId,
             input.expectedRevision,
-            manifest,
-            'pending',
-            '',
-            active,
+            input.manifest,
             deps.fence,
+            () => combined?.throwIfAborted(),
           );
-          active();
-          if (built.scenes.length || migratedBinding)
-            await deps.store.saveDocument({
-              ...doc,
-              stage: { ...doc.stage, updatedAt: Date.now() },
-            });
-          active();
-          const persisted = await deps.store.loadDocument(input.stageId);
-          if (!persisted) throw new Error('Course removed while saving');
-          checkedManifest(pending, persisted);
-          const ready = await writeTemplates(
-            input.stageId,
-            ownerId,
-            pending.revision,
-            pending,
-            'ready',
-            bindingFingerprint(pending, persisted),
-            active,
-            deps.fence,
-          );
+          let bundle;
+          try {
+            combined?.throwIfAborted();
+            bundle = await produceBundle(await deps.currentOwner(), input.stageId);
+            combined?.throwIfAborted();
+          } catch (e) {
+            return result(
+              {
+                ...saved,
+                stageId: input.stageId,
+                exportReady: false,
+                error: e instanceof Error ? e.message : '导出检查失败',
+                ...(e instanceof ProductionError && e.report ? { report: e.report } : {}),
+              },
+              true,
+            );
+          }
           deps.onCheckpoint({
-            tool: 'lw_upsert_activity',
+            tool: 'lw_save_course',
             stageId: input.stageId,
-            detail: input.title,
-            sceneId: built.activity.contentRef,
+            detail: '新协议活动清单已保存并通过导出检查',
           });
-          rejected.delete(key);
-          return result({ status: 'ready', manifest: ready });
+          return result({
+            ...saved,
+            stageId: input.stageId,
+            exportReady: true,
+            source: bundle.source,
+            assetCount: bundle.assets.length,
+          });
         });
-      } catch (error) {
-        const conflict =
-          (error instanceof ActivityInputError && error.code === 'REVISION_CONFLICT') ||
-          (error instanceof Error && error.message === 'Template revision changed; read and retry');
-        const details = {
-          error: error instanceof Error ? error.message : 'Activity save failed',
-          code: conflict
-            ? 'REVISION_CONFLICT'
-            : error instanceof ActivityInputError
-              ? error.code
-              : 'ACTIVITY_SAVE_FAILED',
-          retryable: conflict,
-          ...(error instanceof ActivityInputError && error.field ? { field: error.field } : {}),
-          nextAction: conflict
-            ? 'Call lw_read_activities, then retry with its revision.'
-            : error instanceof ActivityInputError
-              ? error.nextAction
-              : 'Inspect and resolve the error before retrying. Do not repeat unchanged arguments; report a blocker if it cannot be resolved.',
-        };
-        if (
-          error instanceof ActivityInputError &&
-          ['INVALID_ASSET_REFERENCE', 'INVALID_AUDIO_REFERENCE', 'ASSET_TYPE_MISMATCH'].includes(
-            error.code,
-          )
-        ) {
-          if (rejected.size >= 50) rejected.delete(rejected.keys().next().value!);
-          rejected.set(key, { signature, details });
-        }
-        return result(details, true);
+      } catch (e) {
+        return result({ error: e instanceof Error ? e.message : '保存失败' }, true);
       }
     },
   };
-  return wrapTools([read, upsert], deps);
+  return wrapTools([read, plan, save], deps);
 }

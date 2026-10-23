@@ -19,7 +19,7 @@
  */
 export const STAGE_WRITER_TOOL_NAMES: ReadonlySet<string> = new Set([
   // course generation writers
-  'lw_upsert_activity',
+  'lw_save_course',
   'set_roster',
   'generate_scene',
   'generate_actions',
