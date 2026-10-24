@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { contentSchema, assetSlots } from '@openmaic/scene-components';
 const mocks = vi.hoisted(() => ({
   provider: vi.fn(),
   store: vi.fn(),
@@ -95,7 +96,9 @@ describe('source persistence around HTTP preparation', () => {
     row.document_hash = '';
     await expect(produceBundle('owner', 'stage')).rejects.toMatchObject({ status: 409 });
     expect(mocks.prepare).not.toHaveBeenCalled();
-    await expect(saveCourse('owner', 'stage', row.revision, row.manifest)).resolves.toMatchObject({ revision: 3 });
+    await expect(saveCourse('owner', 'stage', row.revision, row.manifest)).resolves.toMatchObject({
+      revision: 3,
+    });
   });
   it('resolves before entering the transaction and preserves owner/lease fences on save', async () => {
     const fence = vi.fn();
@@ -158,4 +161,70 @@ describe('source persistence around HTTP preparation', () => {
     row.document_hash = 'b'.repeat(64);
     await expect(produceBundle('owner', 'stage')).rejects.toThrow('重新保存');
   });
+});
+
+describe('component asset export', () => {
+  it.each(['picture-teaching', 'video-player'])(
+    'binds %s owned media without scanning descriptions',
+    async (id) => {
+      const store =
+        (await mocks.store.mock.results[0]?.value) ||
+        (await (
+          await import('@/extensions/learnweave/adapter')
+        ).getOwnerScopedDocumentStore('owner'));
+      const video = id === 'video-player';
+      const spec = await mocks.spec();
+      spec.templateVersions = [
+        {
+          revision: 1,
+          value: {
+            id: 'component-test',
+            sceneType: 'component',
+            componentRef: { id, version: '1.0.0' },
+            contentSchema: contentSchema({ id, version: '1.0.0' }),
+            assetSlots: assetSlots({ id, version: '1.0.0' }),
+          },
+        },
+      ];
+      store.loadDocument.mockResolvedValue({
+        stage: { id: 'stage', name: 'Component', createdAt: 0, updatedAt: 0 },
+        scenes: [
+          {
+            id: 'scene',
+            stageId: 'stage',
+            type: 'component',
+            title: 'Component',
+            order: 0,
+            content: {
+              type: 'component',
+              componentRef: { id, version: '1.0.0' },
+              props: video
+                ? { videoUrl: 'owned-media', videoDescribe: 'https://not-a-resource.example' }
+                : {
+                    text: 'camel',
+                    imageUrl: 'owned-media',
+                    imageDescribe: 'https://not-a-resource.example',
+                  },
+            },
+          },
+        ],
+      });
+      const provider = await mocks.provider();
+      provider.assetStore.resolve = vi.fn(async () => ({
+        mime: video ? 'video/mp4' : 'image/png',
+        revision: 1,
+        bytes: Buffer.from('test-media'),
+      }));
+      provider.assetStore.identify.mockResolvedValue({ revision: 1 });
+      const b = await produceBundle('owner', 'stage');
+      expect(b.assets).toHaveLength(1);
+      expect((b.course as any).assetBindings).toEqual([
+        {
+          documentPointer: `/scenes/0/content/props/${video ? 'videoUrl' : 'imageUrl'}`,
+          assetId: b.assets[0].id,
+        },
+      ]);
+      expect(b.assets[0].kind).toBe(video ? 'video' : 'image');
+    },
+  );
 });

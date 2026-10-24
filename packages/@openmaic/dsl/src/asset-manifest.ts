@@ -1,3 +1,4 @@
+import { componentAssetReferences, type ComponentContent } from './component.js';
 /**
  * Asset manifest — the standardized answer to "which assets does this document
  * reference?".
@@ -167,6 +168,10 @@ export function enumerateAssetManifest(
 
   for (let sceneIndex = 0; sceneIndex < document.scenes.length; sceneIndex += 1) {
     const scene = document.scenes[sceneIndex];
+    if (scene.content.type === 'component') {
+      for (const slot of componentAssetReferences(scene.content as ComponentContent))
+        record(slot.ref, slot.kind, `scene:${sceneIndex}:component:${slot.path}`);
+    }
     if (isSlideContent(scene.content)) {
       visitSlide(scene.content.canvas, `scene:${sceneIndex}:canvas`);
     }

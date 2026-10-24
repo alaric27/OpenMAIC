@@ -29,6 +29,7 @@ export const validateAppScene: SceneValidator = (scene) => {
   if (!value) {
     return { valid: false, errors: [{ path: '/', message: 'scene must be an object' }] };
   }
+  if (value.type === 'component') return validateScene(scene);
   if (value.type === 'slide' || value.type === 'quiz') return validateScene(scene);
 
   const errors: ValidationIssue[] = [];

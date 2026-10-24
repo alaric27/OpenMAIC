@@ -20,7 +20,7 @@ LearnWeave 定义活动结构、教学规则、能力和课堂状态；OpenMAIC 
 
 ### 后台模板与提示词修订
 
-每次生产先读取 `productionSpec.templates`，按任务选择模板并遵循其 `instructions`。模板的 `id` 即模板编码；`sceneType` 只采用 OpenMAIC 原生 `slide / quiz / interactive / pbl`，`category` 为教学（teaching）、练习（practice）、音视频（media），仅用于分类，不决定执行器。不同编码可以使用相同场景类型，具体教学方式按 `teachingProfileId` 与生产要求选择对应 `kind/data`。音视频可放在 slide 的媒体元素中；独立播放活动引用素材及可选的展示 slide。不要将分类当作新的场景类型，也不要根据模板编码硬编码行为。在 `manifest.templateSelections` 中按活动 ID 指定 `{id, revision}`；保存工具会将该已发布修订的结束策略和默认教法 ID 固定到活动。模板更新后重新读取规范、显式选择新修订并重存清单，不自动改写旧清单。教法提示词正文由 LearnWeave 发布快照管理，生产端只引用教法 ID。
+每次生产先读取 `productionSpec.templates`，按任务选择模板并遵循其 `instructions`。模板的 `id` 即模板编码；`sceneType` 只采用 OpenMAIC 原生 `slide / quiz / interactive / pbl / component`，`category` 为教学（teaching）、练习（practice）、音视频（media），仅用于分类，不决定执行器。不同编码可以使用相同场景类型，具体教学方式按 `teachingProfileId` 与生产要求选择对应 `kind/data`。音视频可放在 slide 的媒体元素中；独立播放活动引用素材及可选的展示 slide。不要将分类当作新的场景类型，也不要根据模板编码硬编码行为。在 `manifest.templateSelections` 中按活动 ID 指定 `{id, revision}`；保存工具会将该已发布修订的结束策略和默认教法 ID 固定到活动。模板更新后重新读取规范、显式选择新修订并重存清单，不自动改写旧清单。教法提示词正文由 LearnWeave 发布快照管理，生产端只引用教法 ID。
 
 ### 按课程节点计划生成
 
@@ -40,3 +40,13 @@ LearnWeave 定义活动结构、教学规则、能力和课堂状态；OpenMAIC 
 - 已预打包的脚本/样式可存入 `widgetConfig.learnweaveResources`：`{key:{kind:'script'|'style',content:'完整代码',dependencies:['前置key']}}`。依赖总量最多 1 MB、30 项，必须形成闭包且无循环。宿主按依赖顺序内联，课堂禁用网络；JS 不得保留 import/import()，CSS 字体/图片需内嵌 data URL，不允许 CDN 或 @import。此清单属于 native document 哈希的一部分。
 - 独立 discussion 需指定已发布 discussion 教法、topic、agentIds、maxTurns，并在 stage.generatedAgentConfigs 携带完整角色定义；教案 discussion 动作也必须引用有效角色。宿主掌管角色顺序、调用预算和教案返回游标。角色描述只能提供上下文，不能授权工具、替换课程或推进其他活动。
 - PBL 不预填作品；学生提交的文本、图片、PDF、UTF-8 文件和音频由宿主私有存储并评价。不要要求学生访问外部链接上传作品。
+
+### 单页组件模板
+
+`teaching-picture` 与 `media-video` 使用 component 场景，一个实例只包含一个任务。先读当前已发布模板和内容 Schema，再使用原生 generate_image / generate_video 工具生成并保存真实素材，等待异步视频成功后调用 `lw_save_component_scene`。组件工具不会替代素材生成。
+
+- 看图：componentRef 为 picture-teaching@1.0.0，props 只有 text、imageUrl、imageDescribe 三个 string；活动为 teaching / picture-talk。
+- 视频：componentRef 为 video-player@1.0.0，props 只有 videoUrl、videoDescribe 两个 string；活动为 media / video，presentationSceneId 指向组件。assetId 可用工具返回的真实素材 ID，保存时由解析器核对并确定。
+- 不生成 HTML、自由画布、pages/rounds、stepConfig、反馈 Schema 或完成策略。使用 lw_save_course 显式保存完整清单和固定模板修订后再导出。
+
+原生 generate_video 立即返回 gen_vid_ 占位引用。组件生产必须调用 lw_wait_component_media 等待其真实素材 src；返回 generating 时使用同一 ref 继续等待，不能重复生成，不需要建立临时 slide。只有 done 的真实素材可用于 videoUrl。

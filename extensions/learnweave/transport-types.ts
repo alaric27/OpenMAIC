@@ -6,6 +6,7 @@ import type {
   QuizContent,
   InteractiveContent,
   PBLContent,
+  ComponentContent,
 } from '@openmaic/dsl';
 
 // Only transport envelopes live here. Activity schemas and semantic rules come from the service.
@@ -13,7 +14,10 @@ export const PRODUCER_API_VERSION = 1;
 export type NativeDesignDocument = {
   dslVersion: string;
   stage: Stage;
-  scenes: Scene<Action, SlideContent | QuizContent | InteractiveContent | PBLContent>[];
+  scenes: Scene<
+    Action,
+    SlideContent | QuizContent | InteractiveContent | PBLContent | ComponentContent
+  >[];
 };
 export type AuthoringManifest = Record<string, unknown> & {
   activities: { id: string; kind: string; data: Record<string, unknown> }[];

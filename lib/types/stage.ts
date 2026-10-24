@@ -79,7 +79,11 @@ export type PBLContent = DslPBLContent & {
  * app-widened feature kinds. This is what `@/lib/types/stage` callers have
  * always known as `SceneContent` (all four cases).
  */
-export type AppSceneContent = DslSceneContent | InteractiveContent | PBLContent;
+export type AppSceneContent =
+  | DslSceneContent
+  | InteractiveContent
+  | PBLContent
+  | import('@openmaic/dsl').ComponentContent;
 
 /**
  * The app's `SceneContent` — the full four-way union. Overrides the contract's

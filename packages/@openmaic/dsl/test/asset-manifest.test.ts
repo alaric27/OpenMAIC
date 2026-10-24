@@ -287,3 +287,23 @@ describe('enumerateAssetManifest — metadata', () => {
     expect(enumerateAssetManifest(document).entries).toEqual([{ ref: 'ast_img', kind: 'image' }]);
   });
 });
+
+it('enumerates snapshotted nested component slots without interpreting other strings', () => {
+  const scene: any = {
+    id: 'component',
+    type: 'component',
+    content: {
+      type: 'component',
+      componentRef: { id: 'new-cards', version: '1' },
+      assetSlots: [{ path: '/cards/*/picture', kind: 'image' }],
+      props: {
+        cards: [{ picture: 'ast_one' }, { picture: 'ast_one' }],
+        imageUrl: 'ordinary-text',
+        description: 'ast_not_media',
+      },
+    },
+  };
+  const manifest = enumerateAssetManifest({ stage: {}, scenes: [scene] });
+  expect(manifest.entries).toEqual([{ ref: 'ast_one', kind: 'image' }]);
+  expect(manifest.referenceCounts.get('ast_one')).toBe(2);
+});

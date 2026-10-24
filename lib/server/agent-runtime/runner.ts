@@ -1454,7 +1454,7 @@ export async function runSession(ctx: RunContext, meta: ClaimedAgentSession): Pr
       getActiveSkill: () => activeSkill,
     });
     const learnweaveTools = await buildLearnWeaveTools({
-      store: ownerScopedStore, stageAccess, ownerId: meta.ownerId,
+      store: ownerScopedStore, stageAccess, ownerId: meta.ownerId, sessionId: id,
       currentOwner, abortSignal: abort.signal,
       onCheckpoint: (info) => emit(LIFECYCLE.checkpoint, info),
       fence: async (tx) => {

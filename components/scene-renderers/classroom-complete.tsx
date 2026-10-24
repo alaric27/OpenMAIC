@@ -23,6 +23,7 @@ const SCENE_TYPE_ICONS: Record<SceneType, typeof FileText> = {
   quiz: HelpCircle,
   interactive: Gamepad2,
   pbl: Puzzle,
+  component: FileText,
 };
 
 const TYPE_ORDER: SceneType[] = ['slide', 'quiz', 'interactive', 'pbl'];

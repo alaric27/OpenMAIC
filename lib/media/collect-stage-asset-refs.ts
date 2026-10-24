@@ -1,4 +1,4 @@
-import { enumerateAssetManifest, type Slide } from '@openmaic/dsl';
+import { enumerateAssetManifest, componentAssetReferences, type Slide } from '@openmaic/dsl';
 import type { Scene, Stage } from '@/lib/types/stage';
 import { slideMediaReferenceSlots } from './slide-media-slots';
 
@@ -96,6 +96,14 @@ export function collectStageAssetRefs(document: StageAssetDocument | null): Stag
     }
 
     for (const scene of document.scenes) {
+      if (scene.content.type === 'component') {
+        for (const slot of componentAssetReferences(scene.content)) {
+          referenced.add(slot.ref);
+          (slot.kind === 'image' ? imageSrc : slot.kind === 'video' ? videoSrc : slideAudioSrc).add(
+            slot.ref,
+          );
+        }
+      }
       if (scene.content.type === 'slide') {
         visitSlide(scene.content.canvas, 'scene');
       }

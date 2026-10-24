@@ -1,3 +1,5 @@
+import { componentAssets, propsIssue } from '@openmaic/scene-components';
+import { definitionFor } from './components/definitions';
 import { ownedCourseAudio } from './course-media-snapshot';
 import { bundledAvatar } from './bundled-avatar';
 import { productionDocument } from './native-document';
@@ -149,6 +151,17 @@ export async function produceBundle(ownerId: string, stageId: string) {
     if (Array.isArray(value)) {
       for (let i = 0; i < value.length; i++) await scan(value[i], `${path}/${i}`);
       return;
+    }
+    const c = value as Record<string, any>;
+    if (c.type === 'component' && c.componentRef) {
+      const definition = definitionFor(spec, c.componentRef);
+      const issue = propsIssue(definition.contentSchema, c.props);
+      if (issue) throw new ProductionError(issue);
+      for (const slot of componentAssets(c.props, definition.assetSlots)) {
+        const asset = await assetFor(slot.ref);
+        if (asset.kind !== slot.kind) throw new ProductionError('组件素材类型不匹配');
+        bindings.push({ documentPointer: `${path}/props${slot.path}`, assetId: asset.id });
+      }
     }
     for (const [key, child] of Object.entries(value)) {
       const pointer = `${path}/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`;

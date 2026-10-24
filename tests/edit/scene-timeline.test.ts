@@ -14,3 +14,8 @@ describe('supportsNarrationTimeline', () => {
     expect(supportsNarrationTimeline('unknown' as never, false)).toBe(false);
   });
 });
+
+test('lets a registered data editor opt out of native narration', () => {
+  expect(supportsNarrationTimeline('component', true, false)).toBe(false);
+  expect(supportsNarrationTimeline('slide', true)).toBe(true);
+});

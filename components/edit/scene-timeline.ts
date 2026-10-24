@@ -11,6 +11,8 @@ const NARRATION_ONLY_TYPES: ReadonlySet<SceneType> = new Set(['interactive', 'pb
 export function supportsNarrationTimeline(
   sceneType: SceneType,
   hasRegisteredSurface: boolean,
+  supportsNarration?: boolean,
 ): boolean {
+  if (supportsNarration !== undefined) return supportsNarration;
   return hasRegisteredSurface || NARRATION_ONLY_TYPES.has(sceneType);
 }

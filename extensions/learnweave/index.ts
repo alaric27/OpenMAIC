@@ -1,3 +1,5 @@
+import { componentMediaTool } from './components/media';
+import { componentSceneTool } from './components/production';
 import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { learnweaveEnabled } from './config';
@@ -80,7 +82,7 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
     name: 'lw_save_course',
     label: '保存课程活动清单',
     description:
-      'Explicitly save a complete ordered new-protocol course activity manifest. Existing native Scenes must already exist. Read productionSpec.templates: id is the template code, sceneType is the native slide/quiz/interactive/pbl type, and category is teaching/practice/media for organization only. Follow the selected template instructions and teachingProfileId; never infer an executor from its code or category. Set manifest.templateSelections[activityId] to its exact {id,revision}; saving resolves the published template endPolicy and teachingProfileId. Use kind/data, objectiveIds and sceneIds. The activity array is the only classroom sequence. Do not infer answers or transform old templates. Saving also checks the actual export. exportReady=false or isError means the course is not ready: use the returned revision and report to repair the native document and save again. Re-read revision on conflict.',
+      'Explicitly save a complete ordered new-protocol course activity manifest. Existing native Scenes must already exist. Read productionSpec.templates: id is the template code, sceneType is the native slide/quiz/interactive/pbl/component type, and category is teaching/practice/media for organization only. Follow the selected template instructions and published teaching prompts; never infer an executor from its code or category. Set manifest.templateSelections[activityId] to its exact {id,revision}; saving resolves the published template execution requirements and teaching prompt snapshots. Use kind/data, objectiveIds and sceneIds. The activity array is the only classroom sequence. Do not infer answers or transform old templates. Saving also checks the actual export. exportReady=false or isError means the course is not ready: use the returned revision and report to repair the native document and save again. Re-read revision on conflict.',
     parameters: Type.Object(
       {
         stageId: Type.String({ minLength: 1, maxLength: 128 }),
@@ -140,5 +142,5 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
       }
     },
   };
-  return wrapTools([read, plan, save], deps);
+  return wrapTools([read, plan, componentSceneTool(deps), componentMediaTool(deps), save], deps);
 }

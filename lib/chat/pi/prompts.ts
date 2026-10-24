@@ -32,6 +32,8 @@ function buildDirectorCourseOutline(body: StatelessChatRequest): string {
     .slice()
     .sort((a, b) => a.order - b.order)
     .map((scene) => {
+      if (scene.type === 'component')
+        return `- order=${scene.order}, sceneId=${JSON.stringify(scene.id)}, type=component, title=${JSON.stringify(scene.title)}`;
       const outline = resolveSceneOutline(scene, outlines);
       const keyPoints = (outline.keyPoints ?? [])
         .slice(0, 5)

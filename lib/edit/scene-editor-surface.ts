@@ -128,6 +128,8 @@ export interface SceneEditorSurface<
   TSelection = unknown,
 > {
   sceneType: SceneType;
+  /** False for data-only surfaces whose teaching process lives outside native narration. */
+  supportsNarration?: boolean;
 
   /**
    * Center surface region — the surface fully owns rendering. Paradigm-neutral

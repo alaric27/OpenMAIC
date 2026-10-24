@@ -1,5 +1,6 @@
 'use client';
 
+import { ComponentSceneView } from '@/extensions/learnweave/components/view';
 import { useMemo } from 'react';
 import type { Scene, StageMode } from '@/lib/types/stage';
 import { SlideEditor as SlideRenderer } from '../slide-renderer/Editor';
@@ -20,6 +21,8 @@ interface SceneRendererProps {
 export function SceneRenderer({ scene, mode }: SceneRendererProps) {
   const renderer = useMemo(() => {
     switch (scene.type) {
+      case 'component':
+        return <ComponentSceneView scene={scene} />;
       case 'slide':
         if (scene.content.type !== 'slide') return <div>Invalid slide content</div>;
         return <SlideRenderer mode={mode} />;

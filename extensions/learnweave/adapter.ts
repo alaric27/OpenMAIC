@@ -15,6 +15,7 @@ export { probeStageAccess } from '@/lib/server/agent-runtime/curriculum-tools';
 export { ownerJson, ownerNotFound } from '@/lib/server/agent-runtime/route-response';
 export type { Queryable };
 export type ToolDeps = CourseToolDeps & {
+  sessionId: string;
   currentOwner: () => Promise<string>;
   fence: (tx: Queryable) => Promise<void>;
 };

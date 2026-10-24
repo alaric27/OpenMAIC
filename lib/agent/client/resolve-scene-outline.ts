@@ -16,6 +16,8 @@ import type { Scene } from '@/lib/types/stage';
  * — never another slide's outline.
  */
 export function resolveSceneOutline(scene: Scene, outlines: SceneOutline[]): SceneOutline {
+  if (scene.type === 'component')
+    throw new Error('组件场景不使用幻灯片大纲，请使用组件编辑入口');
   const matched = scene.outlineId ? outlines.find((o) => o.id === scene.outlineId) : undefined;
   return (
     matched ?? {

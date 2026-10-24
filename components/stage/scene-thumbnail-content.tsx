@@ -1,5 +1,6 @@
 'use client';
 
+import { ComponentSceneThumbnail } from '@/extensions/learnweave/components/view';
 import { BookOpen, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SlideThumbnail } from '@/components/slide-renderer/SlideThumbnail';
@@ -43,6 +44,12 @@ export function SceneThumbnailContent({
   viewportRatio,
   visible = true,
 }: SceneThumbnailContentProps) {
+  if (scene.type === 'component')
+    return (
+      <div style={{ pointerEvents: 'none', width: '100%', height: '100%', overflow: 'hidden' }}>
+        <ComponentSceneThumbnail scene={scene} visible={visible} />
+      </div>
+    );
   if (scene.type === 'slide') {
     const slideContent = scene.content as SlideContent;
     return (

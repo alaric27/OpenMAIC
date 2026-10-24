@@ -38,3 +38,7 @@ export * from './runtime.js';
 export * from './math-render.js';
 export * from './course-issues.js';
 export * from './media-address.js';
+
+export type { ComponentContent, ComponentValue } from './component.js';
+
+export { componentAssetReferences } from './component.js';

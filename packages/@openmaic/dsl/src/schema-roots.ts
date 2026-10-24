@@ -18,10 +18,12 @@
 import type { Scene, SlideContent, QuizContent } from './stage.js';
 import type { InteractiveContent } from './interactive.js';
 import type { PBLContent } from './pbl.js';
+import type { ComponentContent } from './component.js';
 import type { Action } from './action.js';
 
 export type SerializedScene =
   | Scene<Action, SlideContent>
   | Scene<Action, QuizContent>
   | Scene<Action, InteractiveContent>
-  | Scene<Action, PBLContent>;
+  | Scene<Action, PBLContent>
+  | Scene<Action, ComponentContent>;

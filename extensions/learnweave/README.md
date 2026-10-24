@@ -61,3 +61,24 @@ HTTP 编辑接口为 `GET/PUT /api/learnweave/stages/:id/activities`，PUT 接�
 先停止旧版本 OpenMAIC 写入，运行 `node scripts/migrate-learnweave-templates.mjs` 预演，再加 `--apply` 执行。脚本通过事务迁移旧表中尚无新清单的课程，保留原有新清单；完整旧记录、原生文档及迁移记录备份到 `~/.local/state/openmaic/backups/`，不进入仓库。成功后删除旧表和旧迁移账本，不保留启动兼容路径。重复执行无操作。
 
 迁移保留课程和活动 ID、顺序、页面、题目及素材绑定，旧 instructions、提示和专用提示词进入 notes；旧快照完整保存在备份中。新教法按当前服务匹配，课程级别标为待配置，结束策略暂设允许跳过、五分钟上限；不猜测缺失的句型任务。所有迁入记录的 document_hash 为空，因此只可作为待检查草稿，导出返回 409，必须通过当前生产服务显式重存后使用。脚本不接入或发布课程。
+
+### 单页组件场景
+
+组件业务集中在 `extensions/learnweave/components/`：
+
+- `production.ts` 注册 `lw_save_component_scene`，校验已发布组件引用、单任务内容和作者素材，复用宿主 owner/lease fence 与串行写入。
+- `media.ts` 注册 `lw_wait_component_media`，等待原生 `generate_video` 的真实结果；进程内注册表缺失时读取当前会话的持久化 `media_ready` 事件。占位引用不可保存为已完成内容。
+- `definitions.ts` 从 LearnWeave 生产规范读取已发布内容 Schema 和素材字段；`view.tsx` 按远程 Schema 提供字段编辑，`editor-surface.tsx` 使用宿主已有 registry 注册编辑入口。展示代码由本地 `@openmaic/scene-components` 静态注册，不下载执行远程代码。
+
+新增 `teaching-picture`（text/imageUrl/imageDescribe）及 `media-video`（videoUrl/videoDescribe）。字段只声明 string；不引入反馈 Schema、步骤配置或完成策略。旧四类场景维持原流程。
+
+宿主接入点：DSL component 外壳和通用素材路径快照枚举、结构校验、场景分发/缩略图、编辑 surface 预加载、工具写入注册，以及读取组件上下文的安全分支。只读 fallback 保持原样；surface 可声明 supportsNarration=false，不开启原生脚本时间轴。升级宿主时回归这些入口和 `learnweave-component-*`、`learnweave-production-http` 测试。组件不支持的离线/PPTX 导出不能视为完整课堂导出。
+
+
+### 模板元数据与展示代码的边界（2026-10-24）
+
+- Schema、素材字段、生成要求：从现有 LearnWeave HTTP productionSpec 获取。`GET /api/learnweave/components` 为当前作者提供纯数据的编辑器入口，遵守扩展开关，不含密钥或可执行代码。
+- 通用保存工具接受 JSON 对象，以已发布模板 Schema 校验；素材槽使用相对 props 的 JSON pointer，支持数组通配符，例如 `/cards/*/picture`。不通过描述文字猜测素材。
+- 新场景的 `content.assetSlots` 是工具生成的素材字段快照，不是教学内容，也不要求 AI 填写。宿主引用计数/存储/删除仅按快照扫描，不依赖 LearnWeave 在线；没有快照的 0.13 历史组件继续兼容原 imageUrl/videoUrl 字段。新的模板不再修改宿主扫描分支。
+- 编辑器可用 Schema 生成字符串字段与数组/对象 JSON 编辑。专门的交互编辑器和课堂展示仍是本地代码；没有安装的组件展示明确提示不支持。复用已安装组件只需发布 LearnWeave 模板；全新 UI 仅需升级共享组件包和对应静态注册。
+- 缩略图不挂载视频播放器，隐藏缩略图不发起素材加载。视频暂停/恢复沿用现有课堂状态；丢失进程内任务且没有持久化完成回执时返回不可确认，不自动重发付费任务。

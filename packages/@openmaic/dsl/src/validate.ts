@@ -279,6 +279,34 @@ function checkScene(doc: unknown, path: string, errors: ValidationIssue[]): void
         path: `${path}/content/questions`,
         message: 'quiz content requires a `questions` array',
       });
+    } else if (t === 'component') {
+      if (
+        !isObject(content.componentRef) ||
+        typeof content.componentRef.id !== 'string' ||
+        !content.componentRef.id ||
+        typeof content.componentRef.version !== 'string' ||
+        !content.componentRef.version ||
+        !isObject(content.props)
+      )
+        errors.push({
+          path: `${path}/content`,
+          message: 'component requires componentRef and props',
+        });
+      if (
+        content.assetSlots !== undefined &&
+        (!Array.isArray(content.assetSlots) ||
+          content.assetSlots.some(
+            (slot: unknown) =>
+              !isObject(slot) ||
+              typeof slot.path !== 'string' ||
+              !slot.path.startsWith('/') ||
+              !['image', 'video', 'audio'].includes(String(slot.kind)),
+          ))
+      )
+        errors.push({
+          path: `${path}/content/assetSlots`,
+          message: 'invalid component asset slots',
+        });
     } else if (t === 'interactive') {
       checkInteractiveContent(content, `${path}/content`, errors);
     } else if (t === 'pbl') {

@@ -137,6 +137,9 @@ importers:
       '@openmaic/renderer':
         specifier: workspace:*
         version: link:packages/@openmaic/renderer
+      '@openmaic/scene-components':
+        specifier: workspace:*
+        version: link:packages/@openmaic/scene-components
       '@openmaic/storage':
         specifier: workspace:*
         version: link:packages/@openmaic/storage
@@ -875,6 +878,22 @@ importers:
       tslib:
         specifier: ^2.8.0
         version: 2.8.1
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+
+  packages/@openmaic/scene-components:
+    dependencies:
+      ajv:
+        specifier: ^8.18.0
+        version: 8.18.0
+    devDependencies:
+      '@types/react':
+        specifier: ^19
+        version: 19.2.14
+      react:
+        specifier: ^19
+        version: 19.2.3
       typescript:
         specifier: ^5
         version: 5.9.3

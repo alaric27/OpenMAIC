@@ -19,7 +19,7 @@ import type { Slide } from './slides.js';
 import type { Action } from './action.js';
 
 /** All scene kinds owned by the contract. */
-export type SceneType = 'slide' | 'quiz' | 'interactive' | 'pbl';
+export type SceneType = 'slide' | 'quiz' | 'interactive' | 'pbl' | 'component';
 
 /** Frozen set of every valid {@link SceneType}, for cheap membership checks. */
 export const SCENE_TYPES = [
@@ -27,6 +27,7 @@ export const SCENE_TYPES = [
   'quiz',
   'interactive',
   'pbl',
+  'component',
 ] as const satisfies readonly SceneType[];
 
 // Compile-time exhaustiveness: every SceneType must appear in SCENE_TYPES.

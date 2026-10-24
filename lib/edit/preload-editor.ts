@@ -35,6 +35,7 @@ export function preloadEditor(): Promise<void> {
       import('@/app/editor-fonts'),
       import('@/components/edit/surfaces/slide'),
       import('@/components/edit/surfaces/quiz'),
+      import('@/extensions/learnweave/components/editor-surface'),
     ]).then(() => {
       editorLoaded = true;
     });

@@ -100,6 +100,7 @@ export function SceneSidebar({
       quiz: PieChart,
       interactive: MousePointer2,
       pbl: Cpu,
+      component: Cpu,
     };
     return icons[type] || BookOpen;
   };

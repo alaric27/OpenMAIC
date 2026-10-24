@@ -91,13 +91,18 @@ export function EditChromeRoot({ scene, isEditable, onToggleEditMode }: EditChro
 
   // Whether this scene type has a registered canvas editor surface (slide/quiz).
   // Authoring surface is separate from narration timeline availability.
-  const authoringEnabled = !!sceneEditorRegistry.resolve(scene.type);
+  const surface = sceneEditorRegistry.resolve(scene.type);
+  const authoringEnabled = !!surface;
   // The narration timeline is decoupled from the canvas editor surface (like
   // agentEnabled below): it applies to registered surfaces (slide/quiz) AND
   // view-only canvases that still carry a spoken script (interactive/pbl). It is
   // also the dock's gate: the timeline is the dock's first tool, so where there
   // is no timeline there is no bench to hang other tools off either.
-  const timelineEnabled = supportsNarrationTimeline(scene.type, authoringEnabled);
+  const timelineEnabled = supportsNarrationTimeline(
+    scene.type,
+    authoringEnabled,
+    surface?.supportsNarration,
+  );
 
   const headerControls = inWorkbenchPanel ? undefined : (
     <HeaderControls
