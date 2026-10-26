@@ -1,7 +1,8 @@
 import { putSceneBringingCurrent } from '@/lib/server/agent-runtime/document-writes';
 import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import { propsIssue, componentAssets } from '@openmaic/scene-components';
+import { componentAssets } from './protocol';
+import { propsIssue } from './schema-validation';
 import { definitionFromTemplate } from './definitions';
 import { productionSpec } from '../client';
 import {

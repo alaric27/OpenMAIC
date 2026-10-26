@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { contentSchema, assetSlots } from '@openmaic/scene-components';
+import { contentSchema, assetSlots } from './component-contract-fixtures';
 const mocks = vi.hoisted(() => ({
   provider: vi.fn(),
   store: vi.fn(),

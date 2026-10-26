@@ -169,3 +169,65 @@ export async function prepareBundle(
     throw new ProductionError('生产 Bundle 响应与源修订不一致', 503);
   return prepared;
 }
+
+/** Hosted component previews: only LearnWeave returns executable preview pages. */
+export async function createComponentPreview(
+  input: unknown,
+): Promise<{ id: string; token: string; url: string; expiresAt: number; revision: number }> {
+  const value = await json('/api/v1/component-previews', input);
+  let url: URL;
+  try {
+    url = new URL(value.url);
+  } catch {
+    throw new ProductionError('预览响应无效', 503);
+  }
+  if (
+    typeof value.id !== 'string' ||
+    typeof value.token !== 'string' ||
+    !Number.isFinite(value.expiresAt) ||
+    url.username ||
+    url.password ||
+    (url.protocol !== 'https:' &&
+      !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) ||
+    !url.hash.startsWith('#component-preview=')
+  )
+    throw new ProductionError('预览响应无效', 503);
+  return value;
+}
+export async function componentPreviewThumbnail(id: string, token: string) {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${origin()}/api/v1/component-previews/${encodeURIComponent(id)}/thumbnail`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+        redirect: 'error',
+        signal: AbortSignal.timeout(20000),
+      },
+    );
+  } catch {
+    throw new ProductionError('LearnWeave 缩略图暂不可用', 503);
+  }
+  if (!response.ok)
+    throw new ProductionError('LearnWeave 缩略图暂不可用', response.status === 404 ? 404 : 503);
+  if (!response.headers.get('content-type')?.startsWith('image/svg+xml'))
+    throw new ProductionError('缩略图响应格式无效', 503);
+  const reader = response.body?.getReader();
+  if (!reader) throw new ProductionError('缩略图响应为空', 503);
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > 4 * 1024 * 1024) throw new ProductionError('缩略图响应过大', 503);
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks);
+}

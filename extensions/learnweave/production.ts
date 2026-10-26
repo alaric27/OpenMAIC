@@ -1,4 +1,5 @@
-import { componentAssets, propsIssue } from '@openmaic/scene-components';
+import { componentAssets } from './components/protocol';
+import { propsIssue } from './components/schema-validation';
 import { definitionFor } from './components/definitions';
 import { ownedCourseAudio } from './course-media-snapshot';
 import { bundledAvatar } from './bundled-avatar';

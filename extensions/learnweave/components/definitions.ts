@@ -1,8 +1,4 @@
-import {
-  assetSlots,
-  componentContract,
-  type ComponentDefinition,
-} from '@openmaic/scene-components';
+import type { ComponentDefinition } from './protocol';
 import { ProductionError } from '../client';
 import type { ProductionSpec } from '../transport-types';
 /** Published LearnWeave metadata is authoritative. Defaults only support pre-metadata template revisions. */
@@ -10,9 +6,8 @@ export function definitionFromTemplate(template: Record<string, any>): Component
   const ref = template.componentRef;
   if (template.sceneType !== 'component' || !ref?.id || !ref?.version)
     throw new ProductionError('已发布组件模板不存在');
-  const legacy = componentContract(ref);
   const schema = template.contentSchema;
-  const slots = template.assetSlots ?? (legacy ? assetSlots(ref) : undefined);
+  const slots = template.assetSlots;
   if (!schema || typeof schema !== 'object' || !Array.isArray(slots))
     throw new ProductionError('模板缺少内容 Schema 或素材字段描述');
   if (

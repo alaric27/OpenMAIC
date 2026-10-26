@@ -1,5 +1,5 @@
 import { beforeEach, it, expect, vi } from 'vitest';
-import { contentSchema, assetSlots } from '@openmaic/scene-components';
+import { contentSchema, assetSlots } from './component-contract-fixtures';
 const mocks = vi.hoisted(() => ({ spec: vi.fn(), provider: vi.fn() }));
 vi.mock('@/extensions/learnweave/client', () => ({ productionSpec: mocks.spec }));
 vi.mock('@/extensions/learnweave/adapter', () => ({
