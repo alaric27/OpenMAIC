@@ -197,7 +197,8 @@ export function ComponentSceneView({
         minHeight: 220,
         display: 'flex',
         flexDirection: 'column',
-        overflow: 'auto',
+        overflow: 'hidden',
+        background: '#11141e',
       }}
     >
       {hosted && !error ? (
@@ -219,12 +220,34 @@ export function ComponentSceneView({
         </div>
       )}
       {editing && (
-        <details open={!!error}>
-          <summary>编辑内容 JSON</summary>
+        <details
+          open={!!error}
+          style={{
+            flexShrink: 0,
+            padding: '5px 14px',
+            borderTop: '1px solid #ffffff0d',
+            background: '#151823',
+            color: '#9aa3b9',
+            fontSize: 11,
+          }}
+        >
+          <summary style={{ cursor: 'pointer', width: 'fit-content' }}>高级设置</summary>
           <textarea
             aria-label="组件内容 JSON"
             value={raw}
-            style={{ width: '100%', minHeight: 160 }}
+            style={{
+              width: '100%',
+              minHeight: 160,
+              maxHeight: 240,
+              marginTop: 10,
+              padding: 12,
+              borderRadius: 8,
+              border: '1px solid #ffffff20',
+              background: '#0e1119',
+              color: '#d6dbea',
+              fontFamily: 'monospace',
+              fontSize: 12,
+            }}
             onChange={(e) => setRaw(e.target.value)}
             onBlur={() => {
               try {
@@ -238,7 +261,7 @@ export function ComponentSceneView({
               }
             }}
           />
-          <p>修改后需重新保存活动清单才能导出。</p>
+          <p style={{ fontSize: 11, margin: '6px 0' }}>修改后需重新保存活动清单才能导出。</p>
         </details>
       )}
     </div>
