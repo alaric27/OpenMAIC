@@ -1,5 +1,6 @@
 import { putSceneBringingCurrent } from '@/lib/server/agent-runtime/document-writes';
 import { Type } from 'typebox';
+import { importPlanMedia, type PlanSelection } from './plan-media';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { componentAssets } from './protocol';
 import { propsIssue } from './schema-validation';
@@ -11,12 +12,16 @@ import {
   assetPrincipalForOwner,
   type ToolDeps,
 } from '../adapter';
-export function componentSceneTool(deps: ToolDeps): AgentTool {
+export function componentSceneTool(
+  deps: ToolDeps,
+  currentPlan?: () => PlanSelection | undefined,
+): AgentTool {
+  const assetCache = new Map<string, string>();
   return {
     name: 'lw_save_component_scene',
     label: '保存组件场景',
     description:
-      'Save a single-page component using an exact published LearnWeave template revision. Read its contentSchema and assetSlots from lw_read_activities; generate and persist declared media first, wait for native async video with lw_wait_component_media, then submit JSON props matching that schema. Do not invent template-specific fields, HTML, actions or multiple pages. Finally use lw_save_course to bind activities and export.',
+      'Save a single-page component using an exact published LearnWeave template revision. Read its contentSchema and assetSlots from lw_read_activities; For original media URLs listed in a published course plan, read it with lw_read_course_plan first (or pass planSelection:{id,revision}); this tool imports them into the current author asset library automatically. Do not use fetch_url or ask the user to re-upload plan media. For new media, generate and persist declared media first, wait for native async video with lw_wait_component_media, then submit JSON props matching that schema. Do not invent template-specific fields, HTML, actions or multiple pages. Finally use lw_save_course to bind activities and export.',
     parameters: Type.Object(
       {
         stageId: Type.String(),
@@ -26,6 +31,12 @@ export function componentSceneTool(deps: ToolDeps): AgentTool {
         templateId: Type.String(),
         templateRevision: Type.Integer({ minimum: 1 }),
         props: Type.Record(Type.String(), Type.Unknown()),
+        planSelection: Type.Optional(
+          Type.Object(
+            { id: Type.String(), revision: Type.Integer({ minimum: 1 }) },
+            { additionalProperties: false },
+          ),
+        ),
       },
       { additionalProperties: false },
     ),
@@ -39,6 +50,7 @@ export function componentSceneTool(deps: ToolDeps): AgentTool {
           templateId: string;
           templateRevision: number;
           props: Record<string, any>;
+          planSelection?: PlanSelection;
         };
         const spec = await productionSpec();
         const template = spec.templateVersions.find(
@@ -48,14 +60,41 @@ export function componentSceneTool(deps: ToolDeps): AgentTool {
         const definition = definitionFromTemplate(template);
         const issue = propsIssue(definition.contentSchema, input.props);
         if (issue) throw Error(issue);
+        const combined =
+          signal && deps.abortSignal
+            ? AbortSignal.any([signal, deps.abortSignal])
+            : signal || deps.abortSignal;
+        combined?.throwIfAborted();
+        const props = structuredClone(input.props);
+        const docBefore = await deps.store.loadDocument(input.stageId);
+        if (!docBefore) throw Error('课程不存在');
+        const oldBefore = docBefore.scenes.find((s) => s.id === input.sceneId);
+        if (
+          oldBefore &&
+          (oldBefore.type !== 'component' ||
+            oldBefore.content.componentRef.id !== definition.componentRef.id)
+        )
+          throw Error('不能覆盖其他类型的已有场景');
+        if (docBefore.scenes.some((s) => s.order === input.order && s.id !== input.sceneId))
+          throw Error('场景顺序已被占用');
+        await importPlanMedia({
+          deps,
+          stageId: input.stageId,
+          selection: input.planSelection || currentPlan?.(),
+          spec,
+          props,
+          resources: componentAssets(props, definition.assetSlots),
+          signal: combined,
+          cache: assetCache,
+        });
         const content = {
           type: 'component' as const,
           componentRef: definition.componentRef,
-          props: input.props,
+          props,
           assetSlots: structuredClone(definition.assetSlots),
         };
         const provider = await getServerPersistenceProvider(process.env.DATABASE_URL ?? '');
-        const resources = componentAssets(input.props, definition.assetSlots);
+        const resources = componentAssets(props, definition.assetSlots);
         const owner = assetPrincipalForOwner(await deps.currentOwner());
         const verified: { assetId: string; kind: string }[] = [];
         for (const slot of resources) {
@@ -70,10 +109,6 @@ export function componentSceneTool(deps: ToolDeps): AgentTool {
         }
         const assetId = verified[0]?.assetId,
           kind = verified[0]?.kind;
-        const combined =
-          signal && deps.abortSignal
-            ? AbortSignal.any([signal, deps.abortSignal])
-            : signal || deps.abortSignal;
         await runStageMutation(combined, async () => {
           const doc = await deps.store.loadDocument(input.stageId);
           if (!doc) throw Error('课程不存在');

@@ -43,10 +43,10 @@ LearnWeave 定义活动结构、教学规则、能力和课堂状态；OpenMAIC 
 
 ### 单页组件模板
 
-`teaching-picture` 与 `media-video` 使用 component 场景，一个实例只包含一个任务。先读当前已发布模板和内容 Schema，再使用原生 generate_image / generate_video 工具生成并保存真实素材，等待异步视频成功后调用 `lw_save_component_scene`。组件工具不会替代素材生成。
+组件模板使用 component 场景，一个实例只包含一个任务。先读当前已发布模板的 contentSchema、assetSlots、activityTypes 与执行要求。计划要求复用原课素材时，先调用 `lw_read_course_plan` 固定计划修订，再将计划给出的原始 URL 传入 `lw_save_component_scene`；工具会沿用刚读取的配置，自动从 LearnWeave 源素材副本导入作者素材库，也可显式传 `planSelection: {id,revision}`。`list_materials` 为空只说明没有会话附件，不能据此判定计划素材不可用或要求重新上传。只在计划需要新素材时使用原生 generate_image / generate_video，等待异步视频成功后保存组件。
 
-- 看图：componentRef 为 picture-teaching@1.0.0，props 只有 text、imageUrl、imageDescribe 三个 string；活动为 teaching / picture-talk。
-- 视频：componentRef 为 video-player@1.0.0，props 只有 videoUrl、videoDescribe 两个 string；活动为 media / video，presentationSceneId 指向组件。assetId 可用工具返回的真实素材 ID，保存时由解析器核对并确定。
+- componentRef、props 字段、活动 kind/data 均以本次发布模板和 productionSpec 为准，不沿用旧模板的 picture-talk 或 video 执行结构，不根据模板编码或分类推断执行器。
+- 素材可使用工具返回的真实作者素材 ID；原课外链在组件保存时先导入，再由解析器核对并确定。
 - 不生成 HTML、自由画布、pages/rounds、stepConfig、反馈 Schema 或完成策略。使用 lw_save_course 显式保存完整清单和固定模板修订后再导出。
 
 原生 generate_video 立即返回 gen_vid_ 占位引用。组件生产必须调用 lw_wait_component_media 等待其真实素材 src；返回 generating 时使用同一 ref 继续等待，不能重复生成，不需要建立临时 slide。只有 done 的真实素材可用于 videoUrl。

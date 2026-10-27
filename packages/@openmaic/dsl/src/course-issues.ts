@@ -107,7 +107,8 @@ export function collectCourseIssues(
         source: 'document',
         ...fields,
       });
-    if (!actions.length) add('empty-actions');
+    // Standalone components execute their own interaction; narration actions are optional.
+    if (!actions.length && scene.content.type !== 'component') add('empty-actions');
     issues.push(...collectActionContentIssues(scene.id, actions));
     const canvas = isSlideContent(scene.content) ? scene.content.canvas : undefined;
     const targets = new Map((canvas?.elements ?? []).map((element) => [element.id, element.type]));

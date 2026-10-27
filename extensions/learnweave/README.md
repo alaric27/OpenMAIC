@@ -89,3 +89,11 @@ OpenMAIC 只在 `extensions/learnweave/components/` 保留通用接入层，组�
 ### 教学节点与多个环节
 
 `lw_read_course_plan` 支持 `schemaVersion: 2` 的教学节点配置：`value.nodes[].segments` 保留层级，顶层 `activities` 是服务端派生的生产顺序。按 `activities[].configuration.id` 创建活动，使用每项的配置及 `resolvedConfiguration`，保留 `nodeId`/`segmentId` 对应关系，保存时仍固定 `manifest.planSelection`。LearnWeave 权威解析目标、模板与覆盖，并在接入时恢复节点与环节。历史单模板计划的活动 ID 规则继续保持。
+
+### 复用课程配置中的原课素材
+
+调用 `lw_read_course_plan` 会为本轮工具集记录已读取的计划修订，`lw_save_component_scene` 自动沿用它，也可显式携带 `planSelection: {id, revision}`，将该已发布配置中明确出现的 HTTPS 素材 URL 转成当前作者素材库的引用，再保存场景。工具只读取模板声明的素材字段，支持嵌套数组字段，同一工具集中重复使用同一素材不会重复入库。下载、素材类型、大小、当前课程归属、任务租约与取消检查均在写入前执行。
+
+原课素材优先通过配置所属 LearnWeave 服务的 `plan/:id/source-media` 获取。配置可用 `sourceMedia` 登记按哈希保存的原始字节；历史配置仍必须包含请求的精确原始 URL，才能读取后续发布登记的同一素材。未登记的素材走现有 HTTPS 公网下载校验，不扩大 `fetch_url` 的会话来源白名单。生成场景只保存作者素材引用，不保留外链作为运行依赖。
+
+整课生成读取配置后，将 `planSelection` 同时传给组件保存工具及最终课程活动清单。单环节生产仅向组件工具传该参数，最终清单仍固定 `templateSelections` 与 `segmentConfigurations`，不得误用整课清单约束。遇到缺少配置参数时按错误指引重试，无需要求用户重新上传计划已有的素材。

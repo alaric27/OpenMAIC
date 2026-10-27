@@ -247,3 +247,12 @@ it('keeps valid action content clear and reports lint once per offending action 
     { kind: 'empty-discussion', actionId: 'discussion' },
   ]);
 });
+
+it('does not mark standalone components incomplete for having no narration actions', () => {
+  const component: CourseIssueScene = { ...scene([]), content: { type: 'component' } };
+  expect(issues(component)).toEqual([]);
+  expect(
+    issues({ ...component, actions: [{ ...speech, text: ' ' }] }).map((i) => i.kind),
+  ).toContain('empty-speech');
+  expect(issues(scene([])).map((i) => i.kind)).toContain('empty-actions');
+});

@@ -1,4 +1,5 @@
 import { componentMediaTool } from './components/media';
+import type { PlanSelection } from './components/plan-media';
 import { componentSceneTool } from './components/production';
 import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
@@ -18,6 +19,7 @@ const result = (value: unknown, isError = false) => ({
 });
 export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]> {
   if (!learnweaveEnabled()) return [];
+  let currentPlan: PlanSelection | undefined;
   const read: AgentTool = {
     name: 'lw_read_activities',
     label: '读取课程活动',
@@ -58,14 +60,18 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
             : p.revision === revision),
       );
       if (!selected) return result({ error: '已发布节点配置不存在' }, true);
+      currentPlan = { id: selected.value.id, revision: selected.revision };
       return result({
         plan: selected,
         activities: selected.activities,
-        templates: (selected.activities?.map(a=>a.configuration) || selected.value.nodes).map((n) =>
-          spec.templateVersions.find(
-            (t) => t.value.id === n.templateId && t.revision === n.templateRevision,
-          ),
+        templates: (selected.activities?.map((a) => a.configuration) || selected.value.nodes).map(
+          (n) =>
+            spec.templateVersions.find(
+              (t) => t.value.id === n.templateId && t.revision === n.templateRevision,
+            ),
         ),
+        mediaInstruction:
+          'For original media URLs in this plan, pass planSelection:{id:plan.value.id,revision:plan.revision} to lw_save_component_scene. It imports declared media URLs into the current author asset library and replaces props with owned references. Do not use fetch_url, ask_user for re-upload, or generate replacements for available original media.',
         instruction:
           selected.value.schemaVersion === 2
             ? 'The plan has teaching nodes containing multiple Segments. Generate exactly one activity for each entry in activities, in that order. Use activities[].configuration.id as the activity ID, its configuration for template, contentRequirements and task, and its resolvedConfiguration for execution. Keep nodeId and segmentId identities. Save manifest.planSelection with the exact plan ID and revision. LearnWeave resolves all node goals, per-Segment overrides and the hierarchy; never flatten or discard the published plan.'
@@ -145,5 +151,8 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
       }
     },
   };
-  return wrapTools([read, plan, componentSceneTool(deps), componentMediaTool(deps), save], deps);
+  return wrapTools(
+    [read, plan, componentSceneTool(deps, () => currentPlan), componentMediaTool(deps), save],
+    deps,
+  );
 }

@@ -231,3 +231,34 @@ export async function componentPreviewThumbnail(id: string, token: string) {
   }
   return Buffer.concat(chunks);
 }
+
+/** Original source bytes come from the configured LearnWeave service, never a model-selected host. */
+export async function readPlanMedia(
+  selection: { id: string; revision: number },
+  url: string,
+  signal?: AbortSignal,
+): Promise<Response | null> {
+  const response = await fetch(
+    `${origin()}/api/v1/admin/course-configuration/plan/${encodeURIComponent(selection.id)}/source-media`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ revision: selection.revision, url }),
+      redirect: 'error',
+      cache: 'no-store',
+      signal,
+    },
+  );
+  if (response.status === 404) {
+    await response.body?.cancel();
+    return null;
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new ProductionError(
+      '已登记的原课素材读取失败，请检查素材文件与课程配置',
+      response.status,
+    );
+  }
+  return response;
+}
