@@ -1,7 +1,7 @@
 import { DSL_VERSION } from '@openmaic/dsl';
 import type { NativeDesignDocument } from './transport-types';
-/** outlineId is the workbench's generation linkage, not part of the native DSL.
- * Preserve all content and playback fields; unknown content still fails validation.
+/** Workbench linkage and scene edit timestamps are not playback content.
+ * Normalize them before both manifest checks and export; preserve every content/playback field.
  */
 export function productionDocument(doc: {
   stage: unknown;
@@ -11,7 +11,12 @@ export function productionDocument(doc: {
     dslVersion: DSL_VERSION,
     stage: structuredClone(doc.stage),
     scenes: doc.scenes.map((scene) => {
-      const { outlineId: _outlineId, ...native } = scene as Record<string, unknown>;
+      const {
+        outlineId: _outlineId,
+        createdAt: _createdAt,
+        updatedAt: _updatedAt,
+        ...native
+      } = scene as Record<string, unknown>;
       const copy = structuredClone(native);
       if (Array.isArray(copy.actions))
         copy.actions = copy.actions.map((action: Record<string, unknown>) => {

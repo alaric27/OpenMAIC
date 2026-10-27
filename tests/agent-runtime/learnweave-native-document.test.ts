@@ -16,7 +16,7 @@ it('exports generated native scene metadata without the workbench outline linkag
   };
   const native = productionDocument(doc);
   expect(native.scenes[0]).not.toHaveProperty('outlineId');
-  expect(native.scenes[0]).toHaveProperty('createdAt', 123);
+  expect(native.scenes[0]).not.toHaveProperty('createdAt');
   expect(native.scenes[0]).toHaveProperty('unknownContent', 'must still be validated');
   expect(doc.scenes[0].outlineId).toBe('outline-1');
 });
@@ -49,4 +49,24 @@ it('drops only the identical workbench audioUrl alias and rejects conflicting na
       scenes: [{ ...scene, actions: [{ ...scene.actions[0], audioUrl: 'different-audio' }] }],
     }),
   ).toThrow('不一致');
+});
+
+it('keeps the production snapshot stable after editor-only timestamps, while preserving actual content changes', () => {
+  const original = {
+    stage: { id: 'stage' },
+    scenes: [
+      {
+        id: 's',
+        type: 'component',
+        order: 1,
+        content: { type: 'component', props: { text: 'apple', createdAt: 'authored content' } },
+      },
+    ],
+  };
+  const opened = structuredClone(original);
+  Object.assign(opened.scenes[0], { createdAt: 123, updatedAt: 456 });
+  expect(productionDocument(opened)).toEqual(productionDocument(original));
+  expect(productionDocument(opened).scenes[0].content).toEqual(original.scenes[0].content);
+  opened.scenes[0].content.props.text = 'bread';
+  expect(productionDocument(opened)).not.toEqual(productionDocument(original));
 });
