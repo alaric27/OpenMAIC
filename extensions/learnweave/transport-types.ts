@@ -30,7 +30,8 @@ export interface ProductionSpec {
   profile: { id: string; dslVersion: string; [key: string]: unknown };
   plans: {
     revision: number;
-    value: { id: string; nodes: { templateId: string; templateRevision: number }[] };
+    value: { id: string; schemaVersion?: number; nodes: { templateId?: string; templateRevision?: number; segments?: {templateId:string;templateRevision:number}[] }[] };
+    activities?: {nodeId:string;segmentId?:string;configuration:{id:string;templateId:string;templateRevision:number;[key:string]:unknown};[key:string]:unknown}[];
   }[];
   planVersions: ProductionSpec['plans'];
   templateVersions: { revision: number; value: { id: string } }[];

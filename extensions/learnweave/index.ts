@@ -60,13 +60,16 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
       if (!selected) return result({ error: '已发布节点配置不存在' }, true);
       return result({
         plan: selected,
-        templates: selected.value.nodes.map((n) =>
+        activities: selected.activities,
+        templates: (selected.activities?.map(a=>a.configuration) || selected.value.nodes).map((n) =>
           spec.templateVersions.find(
             (t) => t.value.id === n.templateId && t.revision === n.templateRevision,
           ),
         ),
         instruction:
-          'Generate each node in this order using its goal, contentRequirements, task and resolvedConfiguration. Save manifest.planSelection with the exact plan ID and revision. Activity IDs must equal node IDs.',
+          selected.value.schemaVersion === 2
+            ? 'The plan has teaching nodes containing multiple Segments. Generate exactly one activity for each entry in activities, in that order. Use activities[].configuration.id as the activity ID, its configuration for template, contentRequirements and task, and its resolvedConfiguration for execution. Keep nodeId and segmentId identities. Save manifest.planSelection with the exact plan ID and revision. LearnWeave resolves all node goals, per-Segment overrides and the hierarchy; never flatten or discard the published plan.'
+            : 'Generate each node in this order using its goal, contentRequirements, task and resolvedConfiguration. Save manifest.planSelection with the exact plan ID and revision. Activity IDs must equal node IDs.',
       });
     },
   };

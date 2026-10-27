@@ -84,3 +84,8 @@ OpenMAIC 只在 `extensions/learnweave/components/` 保留通用接入层，组�
 - 新场景的 `content.assetSlots` 是工具生成的素材字段快照，不是教学内容，也不要求 AI 填写。宿主引用计数/存储/删除仅按快照扫描，不依赖 LearnWeave 在线；没有快照的 0.13 历史组件继续兼容原 imageUrl/videoUrl 字段。新的模板不再修改宿主扫描分支。
 - 字段编辑、交互预览、版本判断和组件展示统一在 LearnWeave。新增组件只需在 LearnWeave 实现并注册；OpenMAIC 持续使用通用协议，不增加模板分支。
 - 缩略图不挂载视频播放器，隐藏缩略图不发起素材加载。视频暂停/恢复沿用现有课堂状态；丢失进程内任务且没有持久化完成回执时返回不可确认，不自动重发付费任务。
+
+
+### 教学节点与多个环节
+
+`lw_read_course_plan` 支持 `schemaVersion: 2` 的教学节点配置：`value.nodes[].segments` 保留层级，顶层 `activities` 是服务端派生的生产顺序。按 `activities[].configuration.id` 创建活动，使用每项的配置及 `resolvedConfiguration`，保留 `nodeId`/`segmentId` 对应关系，保存时仍固定 `manifest.planSelection`。LearnWeave 权威解析目标、模板与覆盖，并在接入时恢复节点与环节。历史单模板计划的活动 ID 规则继续保持。

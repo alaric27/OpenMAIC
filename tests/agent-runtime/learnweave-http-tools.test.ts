@@ -19,6 +19,23 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 describe('service-provided authoring schema', () => {
+  it('reads hierarchical plans using the authoritative Segment activity sequence', async () => {
+    vi.stubEnv('LEARNWEAVE_EXTENSION_ENABLED', 'true');
+    const template = { revision: 4, value: { id: 'teaching-picture' } };
+    const selected = {
+      revision: 2,
+      value: { id: 'food', schemaVersion: 2, nodes: [{ id: 'apple', segments: [{ id: 'learn', templateId: 'teaching-picture', templateRevision: 4 }, { id: 'check', templateId: 'teaching-picture', templateRevision: 4 }] }] },
+      activities: ['learn', 'check'].map((segmentId, i) => ({ nodeId: 'apple', segmentId, configuration: { id: `segment-1-${i + 1}`, templateId: 'teaching-picture', templateRevision: 4 } })),
+    };
+    mocks.specification.mockResolvedValue({ authoringSchema: {}, plans: [selected], planVersions: [selected], templateVersions: [template] });
+    const tools = await buildLearnWeaveTools({} as ToolDeps);
+    const read = tools.find(t => t.name === 'lw_read_course_plan')!;
+    const response = await read.execute('read', { planId: 'food', revision: 2 }) as any;
+    expect(response.details.plan.value.nodes).toHaveLength(1);
+    expect(response.details.activities.map((a: any) => a.configuration.id)).toEqual(['segment-1-1', 'segment-1-2']);
+    expect(response.details.templates).toEqual([template, template]);
+    expect(response.details.instruction).toContain('nodeId and segmentId');
+  });
   it('does not need the service when the extension is disabled', async () => {
     vi.stubEnv('LEARNWEAVE_EXTENSION_ENABLED', 'false');
     expect(await buildLearnWeaveTools({} as ToolDeps)).toEqual([]);
