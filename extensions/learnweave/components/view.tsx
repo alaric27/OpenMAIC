@@ -171,8 +171,22 @@ export function ComponentSceneView({
         echo.current = JSON.stringify(content);
       useStageStore.getState().updateScene(scene.id, { content });
     }
+    // Register before asking the child to acknowledge: cached iframe modules can
+    // finish before a passive effect receives the child's initial ready event.
     window.addEventListener('message', receive);
-    return () => window.removeEventListener('message', receive);
+    const connect = () => {
+      if (ready.current !== hosted.id)
+        frame.current?.contentWindow?.postMessage(
+          { type: 'learnweave.component-preview.connect', id: hosted.id },
+          origin,
+        );
+    };
+    connect();
+    const reconnect = setInterval(connect, 500);
+    return () => {
+      clearInterval(reconnect);
+      window.removeEventListener('message', receive);
+    };
   }, [hosted?.id, hosted?.url, editing, scene.id, scene.content, setError, echo]);
   if (scene.content.type !== 'component') return null;
   return (
@@ -188,6 +202,7 @@ export function ComponentSceneView({
     >
       {hosted && !error ? (
         <iframe
+          key={hosted.id}
           ref={frame}
           title={editing ? 'LearnWeave 组件编辑预览' : 'LearnWeave 组件预览'}
           src={hosted.url}
@@ -215,11 +230,9 @@ export function ComponentSceneView({
               try {
                 const props = JSON.parse(raw);
                 if (!props || typeof props !== 'object' || Array.isArray(props)) throw Error();
-                useStageStore
-                  .getState()
-                  .updateScene(scene.id, {
-                    content: { ...scene.content, props } as typeof scene.content,
-                  });
+                useStageStore.getState().updateScene(scene.id, {
+                  content: { ...scene.content, props } as typeof scene.content,
+                });
               } catch {
                 setError('内容必须为有效 JSON 对象');
               }
