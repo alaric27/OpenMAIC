@@ -67,6 +67,7 @@ HTTP 编辑接口为 `GET/PUT /api/learnweave/stages/:id/activities`，PUT 接�
 OpenMAIC 只在 `extensions/learnweave/components/` 保留通用接入层，组件实现、Schema、执行器和皮肤全部由 LearnWeave 持有：
 
 - `production.ts` 注册 `lw_save_component_scene`，校验已发布组件引用、单任务内容和作者素材，复用宿主 owner/lease fence 与串行写入。
+- 原生 TTS 返回的当前课堂 `/api/classroom-media/<stageId>/media/tts-*.mp3`（以及 wav/ogg）可直接填入音频素材字段。保存工具检查课堂所有权、路径、大小与真实格式，将音频导入作者素材库，再保存为素材 ID；同一工具上下文内复用已导入音频，不需要手工上传。跨课堂路径不接受。
 - `media.ts` 注册 `lw_wait_component_media`，等待原生 `generate_video` 的真实结果；进程内注册表缺失时读取当前会话的持久化 `media_ready` 事件。占位引用不可保存为已完成内容。
 - `definitions.ts` 从 LearnWeave 生产规范读取内容 Schema 和素材槽；`view.tsx` 通过 iframe 嵌入 LearnWeave 预览/编辑页，并检查回传消息的来源、窗口、预览 ID 和修订号。`editor-surface.tsx` 仍使用宿主 registry 注册通用入口。
 - `hosted-previews.ts` 核验当前作者的素材权限，发出限时、限定素材及修订的读取票据；凭据不会跨站传递。缩略图由 LearnWeave 生成，经作者鉴权代理和浏览器缓存展示，不为列表项挂载 iframe。
