@@ -1,6 +1,7 @@
 import { putSceneBringingCurrent } from '@/lib/server/agent-runtime/document-writes';
 import { Type } from 'typebox';
 import { importPlanMedia, type PlanSelection } from './plan-media';
+import { importClassroomAudio } from './classroom-audio';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { componentAssets } from './protocol';
 import { propsIssue } from './schema-validation';
@@ -21,7 +22,7 @@ export function componentSceneTool(
     name: 'lw_save_component_scene',
     label: '保存组件场景',
     description:
-      'Save a single-page component using an exact published LearnWeave template revision. Read its contentSchema and assetSlots from lw_read_activities; For original media URLs listed in a published course plan, read it with lw_read_course_plan first (or pass planSelection:{id,revision}); this tool imports them into the current author asset library automatically. Do not use fetch_url or ask the user to re-upload plan media. For new media, generate and persist declared media first, wait for native async video with lw_wait_component_media, then submit JSON props matching that schema. Do not invent template-specific fields, HTML, actions or multiple pages. Finally use lw_save_course to bind activities and export.',
+      'Save a single-page component using an exact published LearnWeave template revision. Read its contentSchema and assetSlots from lw_read_activities; For original media URLs listed in a published course plan, read it with lw_read_course_plan first (or pass planSelection:{id,revision}); this tool imports them into the current author asset library automatically. Do not use fetch_url or ask the user to re-upload plan media. Native TTS audioUrl paths /api/classroom-media/<this-stage>/media/tts-*.mp3 (also wav/ogg) are imported automatically into the current author asset library when used in audio slots; pass the real synthesis result directly, never invent an asset id or request re-upload. For new media, generate and persist declared media first, wait for native async video with lw_wait_component_media, then submit JSON props matching that schema. Do not invent template-specific fields, HTML, actions or multiple pages. Finally use lw_save_course to bind activities and export.',
     parameters: Type.Object(
       {
         stageId: Type.String(),
@@ -77,6 +78,14 @@ export function componentSceneTool(
           throw Error('不能覆盖其他类型的已有场景');
         if (docBefore.scenes.some((s) => s.order === input.order && s.id !== input.sceneId))
           throw Error('场景顺序已被占用');
+        await importClassroomAudio({
+          deps,
+          stageId: input.stageId,
+          props,
+          resources: componentAssets(props, definition.assetSlots),
+          signal: combined,
+          cache: assetCache,
+        });
         await importPlanMedia({
           deps,
           stageId: input.stageId,

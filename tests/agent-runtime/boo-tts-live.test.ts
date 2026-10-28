@@ -1,0 +1,19 @@
+import { it, expect } from 'vitest';
+import { createRequire } from 'node:module';
+import { writeFile, mkdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+it('runs real TTS through both failed exercise saves and serves playable committed audio',async()=>{
+const req=createRequire(import.meta.url);const dotenv=req('dotenv');dotenv.config({path:'.env.local',quiet:true});dotenv.config({path:'.env',quiet:true});const settings=dotenv.parse(req('node:fs').readFileSync('../learnweave/.env'));process.env.OPENMAIC_DNS_HOSTS=settings.OPENMAIC_DNS_HOSTS;req('../../../learnweave/scripts/openmaic-dns.cjs');
+const {getServerPersistenceProvider}=await import('../../lib/persistence/server-provider');const provider=await getServerPersistenceProvider(process.env.DATABASE_URL!);
+const stageId='stage-hRTydUVb7K';const ownerId='local';
+const {getOwnerScopedDocumentStore}=await import('../../lib/server/agent-runtime/owner-scoped-documents');const store=await getOwnerScopedDocumentStore(ownerId);const doc=await store.loadDocument(stageId);expect(doc).toBeTruthy();
+const {synthesizeSceneNarration}=await import('../../lib/server/agent-runtime/scene-tts');const scene:any={id:'tts-bridge-verify',stageId,actions:[{id:'bridge-check-'+Date.now(),type:'speech',text:'apple'}]};const summary=await synthesizeSceneNarration({scene,force:true,ownerId});expect(summary.generated).toBe(1);expect(summary.failed).toEqual([]);const audioUrl=scene.actions[0].audioUrl;expect(audioUrl).toMatch(/classroom-media/);
+const {componentSceneTool}=await import('../../extensions/learnweave/components/production');const tool:any=componentSceneTool({store,currentOwner:async()=>ownerId,onCheckpoint:()=>{},fence:async()=>{}} as any);
+const saved=[];for(const template of ['practice-bubble-image','practice-oral-word']){
+const rows=await provider.pool.query("SELECT data->'args' AS args FROM agent_session_events WHERE type='tool_execution_start' AND data->>'toolName'='lw_save_component_scene' AND data->'args'->>'stageId'=$1 AND data->'args'->>'templateId'=$2 AND data->'args'->'props'->>'targetWord'='apple' ORDER BY ts DESC LIMIT 1",[stageId,template]);expect(rows.rows.length).toBe(1);const input=structuredClone(rows.rows[0].args);input.props.audioUrl=audioUrl;
+const result=await tool.execute('live-tts-'+template,input);if(result.isError)throw Error(JSON.stringify(result));const loaded=await store.loadDocument(stageId);const persisted:any=loaded!.scenes.find(s=>s.id===input.sceneId);expect(persisted.content.props.audioUrl).toMatch(/^ast_/);expect(persisted.content.props.targetWord).toBe('apple');const id=persisted.content.props.audioUrl;
+const response=await fetch('http://127.0.0.1:3000/api/persistence/assets/'+id+'/content');expect(response.status).toBe(200);expect(response.headers.get('content-type')).toContain('audio/');const bytes=Buffer.from(await response.arrayBuffer());expect(bytes.length).toBeGreaterThan(100);await mkdir('../learnweave/.data/chef-boo-breakfast-732-v4',{recursive:true});const file='../learnweave/.data/chef-boo-breakfast-732-v4/tts-bridge-'+template+'.mp3';await writeFile(file,bytes);const probe=JSON.parse(execFileSync('ffprobe',['-v','error','-show_entries','format=duration:stream=codec_name,codec_type','-of','json',file],{encoding:'utf8'}));expect(Number(probe.format.duration)).toBeGreaterThan(0);expect(probe.streams[0].codec_type).toBe('audio');saved.push({template,sceneId:input.sceneId,assetId:id,byteSize:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),probe});
+}
+expect(saved[0].assetId).toBe(saved[1].assetId);await writeFile('../learnweave/.data/chef-boo-breakfast-732-v4/tts-bridge-verification.json',JSON.stringify({stageId,summary,audioUrl,saved,verifiedAt:new Date().toISOString()},null,2));
+},180000);
