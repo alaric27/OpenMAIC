@@ -53,7 +53,11 @@ export function componentSceneTool(
           props: Record<string, any>;
           planSelection?: PlanSelection;
         };
-        const spec = await productionSpec();
+        const selection = input.planSelection || currentPlan?.();
+        const spec = await productionSpec({
+          templateSelections: [{ id: input.templateId, revision: input.templateRevision }],
+          ...(selection ? { planSelection: selection } : {}),
+        });
         const template = spec.templateVersions.find(
           (t) => t.value.id === input.templateId && t.revision === input.templateRevision,
         )?.value as Record<string, any> | undefined;

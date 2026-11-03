@@ -25,13 +25,25 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
     label: '读取课程活动',
     description:
       'Read the explicit ordered activity manifest, revision, native scene references and current LearnWeave production specification. Never use prototype template fields. Read before saving.',
-    parameters: Type.Object({ stageId: Type.String({ minLength: 1, maxLength: 128 }) }),
+    parameters: Type.Object({
+      stageId: Type.String({ minLength: 1, maxLength: 128 }),
+      templateSelections: Type.Optional(
+        Type.Array(Type.Object({ id: Type.String(), revision: Type.Integer({ minimum: 1 }) }), {
+          maxItems: 100,
+        }),
+      ),
+    }),
     async execute(_id, raw) {
-      const { stageId } = raw as { stageId: string };
+      const { stageId, templateSelections } = raw as {
+        stageId: string;
+        templateSelections?: { id: string; revision: number }[];
+      };
       const document = await deps.store.loadDocument(stageId);
       return result({
         ...((await readCourse(stageId)) || { revision: 0, manifest: null }),
-        productionSpec: await productionSpec(),
+        productionSpec: await productionSpec(
+          templateSelections?.length ? { templateSelections } : undefined,
+        ),
         scenes: document?.scenes.map((s) => ({ id: s.id, title: s.title, type: s.type })),
       });
     },
@@ -50,14 +62,13 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
     ),
     async execute(_id, raw) {
       const { planId, revision } = raw as { planId?: string; revision?: number };
-      const spec = await productionSpec();
+      let spec = await productionSpec();
       if (!planId) return result({ plans: spec.plans });
+      const selectedRevision = revision ?? spec.plans.find((p) => p.value.id === planId)?.revision;
+      if (!selectedRevision) return result({ error: '已发布节点配置不存在' }, true);
+      spec = await productionSpec({ planSelection: { id: planId, revision: selectedRevision } });
       const selected = spec.planVersions.find(
-        (p) =>
-          p.value.id === planId &&
-          (revision === undefined
-            ? spec.plans.some((c) => c.value.id === planId && c.revision === p.revision)
-            : p.revision === revision),
+        (p) => p.value.id === planId && p.revision === selectedRevision,
       );
       if (!selected) return result({ error: '已发布节点配置不存在' }, true);
       currentPlan = { id: selected.value.id, revision: selected.revision };
@@ -73,7 +84,7 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
         mediaInstruction:
           'For original media URLs in this plan, pass planSelection:{id:plan.value.id,revision:plan.revision} to lw_save_component_scene. It imports declared media URLs into the current author asset library and replaces props with owned references. Do not use fetch_url, ask_user for re-upload, or generate replacements for available original media.',
         instruction:
-          selected.value.schemaVersion === 2
+          selected.value.schemaVersion === 2 || selected.value.schemaVersion === 3
             ? 'The plan has teaching nodes containing multiple Segments. Generate exactly one activity for each entry in activities, in that order. Use activities[].configuration.id as the activity ID, its configuration for template, contentRequirements and task, and its resolvedConfiguration for execution. Keep nodeId and segmentId identities. Save manifest.planSelection with the exact plan ID and revision. LearnWeave resolves all node goals, per-Segment overrides and the hierarchy; never flatten or discard the published plan.'
             : 'Generate each node in this order using its goal, contentRequirements, task and resolvedConfiguration. Save manifest.planSelection with the exact plan ID and revision. Activity IDs must equal node IDs.',
       });
@@ -133,6 +144,14 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
               true,
             );
           }
+          const { recordProductionResult } = await import('./jobs');
+          await recordProductionResult(
+            await deps.currentOwner(),
+            deps.sessionId,
+            bundle,
+            saved.manifest as Record<string, any>,
+            deps.fence,
+          );
           deps.onCheckpoint({
             tool: 'lw_save_course',
             stageId: input.stageId,

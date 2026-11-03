@@ -49,7 +49,14 @@ export async function saveCourse(
   fence?: (tx: Queryable) => Promise<void>,
   assertActive: () => void = () => {},
 ) {
-  const spec = await productionSpec();
+  const selections = manifest as {
+    planSelection?: { id: string; revision: number };
+    templateSelections?: Record<string, { id: string; revision: number }>;
+  };
+  const spec = await productionSpec({
+    planSelection: selections?.planSelection,
+    templateSelections: Object.values(selections?.templateSelections || {}),
+  });
   const store = await getOwnerScopedDocumentStore(ownerId);
   const before = await store.readFreshnessManifest(stageId);
   if (!before) throw new ProductionError('课程不存在', 404);
@@ -83,11 +90,14 @@ export async function saveCourse(
   });
 }
 export async function produceBundle(ownerId: string, stageId: string) {
-  const spec = await productionSpec();
   const store = await getOwnerScopedDocumentStore(ownerId);
   const before = await store.readFreshnessManifest(stageId);
   const row = await readCourse(stageId);
   if (!row) throw new ProductionError('请先保存课程活动清单');
+  const spec = await productionSpec({
+    planSelection: row.manifest.planSelection,
+    templateSelections: Object.values(row.manifest.templateSelections || {}),
+  });
   if (!row.document_hash)
     throw new ProductionError('迁移草稿需要检查配置并重新保存后才能导出', 409);
   const document = await nativeDocument(ownerId, stageId);

@@ -98,3 +98,14 @@ OpenMAIC 只在 `extensions/learnweave/components/` 保留通用接入层，组�
 原课素材优先通过配置所属 LearnWeave 服务的 `plan/:id/source-media` 获取。配置可用 `sourceMedia` 登记按哈希保存的原始字节；历史配置仍必须包含请求的精确原始 URL，才能读取后续发布登记的同一素材。未登记的素材走现有 HTTPS 公网下载校验，不扩大 `fetch_url` 的会话来源白名单。生成场景只保存作者素材引用，不保留外链作为运行依赖。
 
 整课生成读取配置后，将 `planSelection` 同时传给组件保存工具及最终课程活动清单。单环节生产仅向组件工具传该参数，最终清单仍固定 `templateSelections` 与 `segmentConfigurations`，不得误用整课清单约束。遇到缺少配置参数时按错误指引重试，无需要求用户重新上传计划已有的素材。
+
+
+## 独立内容生产任务（2026-11-02）
+
+`POST /api/learnweave/production-jobs` 接收版本 1 的幂等请求（UUID key、prompt、固定活动与模板修订）；`GET /api/learnweave/production-jobs/:key` 查询同一任务，`POST .../:key/cancel` 请求取消。任务按作者隔离，先持久化唯一会话 ID 再创建 Agent 会话；响应丢失或并发重试不会建立第二个会话，相同 key 不接受不同输入。
+
+`lw_save_course` 在导出检查通过并确认作者及租约后写入持久化产物回执。接口结果返回固定 stageId/source，接收方不再解析 Agent SSE 事件。
+
+生产规范默认只返回当前模板和计划摘要。`productionSpec({templateSelections:[{id,revision}]})` 精确获取本任务模板；单独传 planSelection 读取该计划与依赖模板；同时指定模板及计划时仅附带已登记源素材信息，不展开整课。`lw_read_activities` 可传 templateSelections，`lw_read_course_plan` 在选定计划后再获取详情。已有修订仍可按明确引用读取，默认不发送整份历史。
+
+升级时两个仓库一起更新并重启；持久化表由扩展 Schema migrations 管理。`tests/agent-runtime/learnweave-production-jobs.test.ts` 覆盖幂等、并发、响应丢失、归属与产物保存；传入隔离测试数据库连接运行数据库部分。

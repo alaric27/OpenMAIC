@@ -91,8 +91,14 @@ async function json(path: string, body?: unknown): Promise<any> {
   return data;
 }
 
-export async function productionSpec(): Promise<ProductionSpec> {
-  const spec = await json('/api/v1/course-production-spec');
+export interface ProductionSelection {
+  planSelection?: { id: string; revision: number };
+  templateSelections?: { id: string; revision: number }[];
+}
+export async function productionSpec(selection?: ProductionSelection): Promise<ProductionSpec> {
+  const spec = selection
+    ? await json('/api/v1/course-production/spec', selection)
+    : await json('/api/v1/course-production-spec');
   if (
     spec?.producerApiVersion !== PRODUCER_API_VERSION ||
     spec.profile?.protocol !== 'learnweave.capabilities' ||
