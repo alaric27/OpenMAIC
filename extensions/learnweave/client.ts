@@ -36,6 +36,14 @@ function origin() {
   return url.origin;
 }
 
+function requestHeaders(jsonBody: boolean): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (jsonBody) headers['Content-Type'] = 'application/json';
+  if (process.env.LEARNWEAVE_ADMIN_KEY)
+    headers['x-learnweave-admin'] = process.env.LEARNWEAVE_ADMIN_KEY;
+  return headers;
+}
+
 async function json(path: string, body?: unknown): Promise<any> {
   let response: Response;
   try {
@@ -45,7 +53,7 @@ async function json(path: string, body?: unknown): Promise<any> {
       throw new ProductionError('生产请求超过大小限制', 422);
     response = await fetch(`${base}${path}`, {
       method: body === undefined ? 'GET' : 'POST',
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+      headers: requestHeaders(body !== undefined),
       ...(encoded === undefined ? {} : { body: encoded }),
       cache: 'no-store',
       redirect: 'error',
@@ -248,7 +256,7 @@ export async function readPlanMedia(
     `${origin()}/api/v1/admin/course-configuration/plan/${encodeURIComponent(selection.id)}/source-media`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: requestHeaders(true),
       body: JSON.stringify({ revision: selection.revision, url }),
       redirect: 'error',
       cache: 'no-store',

@@ -21,7 +21,10 @@ vi.mock('@/lib/server/classroom-media-bytes', () => ({
   persistClassroomMediaBytes: mocks.persist,
 }));
 
-import { synthesizeSceneNarration } from '@/lib/server/agent-runtime/scene-tts';
+import {
+  synthesizeClassroomPrompt,
+  synthesizeSceneNarration,
+} from '@/lib/server/agent-runtime/scene-tts';
 import type { Scene } from '@/lib/types/stage';
 
 const scene = {
@@ -73,6 +76,41 @@ describe('scene TTS capability routing', () => {
     });
     expect(mocks.persist).toHaveBeenCalledWith(
       expect.objectContaining({ stageId: 'stage-a', mime: 'audio/mpeg' }),
+    );
+  });
+
+  it('synthesizes an English quiz stimulus without writing any narration action', async () => {
+    mocks.providers.mockResolvedValue({
+      providerId: 'azure-tts',
+      apiKey: 'fixture',
+      managed: true,
+      userEndpoint: false,
+      origin: 'configuration',
+    });
+    const audio = new Uint8Array([1, 2]);
+    mocks.generate.mockResolvedValue({ audio, format: 'mp3' });
+    const reference = '/api/classroom-media/stage-a/media/tts-prompt-abc123.mp3';
+    mocks.persist.mockResolvedValue(reference);
+
+    await expect(
+      synthesizeClassroomPrompt({
+        stageId: 'stage-a',
+        ownerId: 'user:alice',
+        language: 'en',
+        text: 'Choose the number three.',
+      }),
+    ).resolves.toBe(reference);
+    expect(mocks.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ voice: 'en-US-JennyNeural', managed: true }),
+      'Choose the number three.',
+    );
+    expect(mocks.persist).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stageId: 'stage-a',
+        bytes: audio,
+        mime: 'audio/mpeg',
+        prefix: 'tts-prompt',
+      }),
     );
   });
 });

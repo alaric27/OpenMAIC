@@ -16,6 +16,7 @@ import {
   submitProductionJob,
   readProductionJob,
   recordProductionResult,
+  retryProductionJob,
 } from '@/extensions/learnweave/jobs';
 
 it('rejects malformed keys and incomplete production contracts', () => {
@@ -38,6 +39,13 @@ describe.skipIf(!connection)('durable production job boundary', () => {
   const schema = `lw_jobs_${randomUUID().replaceAll('-', '')}`;
   const sessions = new Map<string, any>();
   let failAfterSessionCommit = false;
+  let failAfterMessageCommit=false;
+  const messages=new Map<string,Array<{text:string}>>();
+  const postMessage=vi.fn(async(id:string,input:{text:string})=>{
+    messages.set(id,[...(messages.get(id)||[]),input]);sessions.get(id).status='queued';
+    if(failAfterMessageCommit){failAfterMessageCommit=false;throw Error('message response lost');}
+    return {seq:1,delivery:'queued',requeued:true};
+  });
   const create = vi.fn(async (input: any) => {
     if (sessions.has(input.id)) throw Object.assign(Error('duplicate'), { code: '23505' });
     const session = { ...input, status: 'queued' };
@@ -78,6 +86,8 @@ describe.skipIf(!connection)('durable production job boundary', () => {
       readRetirement: async () => null,
       getSession: async (id: string) => sessions.get(id) || null,
       createSession: create,
+      listUserMessages:async(id:string)=>messages.get(id)||[],
+      postUserMessage:postMessage,
     });
   });
   beforeEach(() => {
@@ -154,4 +164,22 @@ describe.skipIf(!connection)('durable production job boundary', () => {
     });
     expect(mocks.owned).toHaveBeenCalled();
   });
+  it('retries a failed producer in the same session and deduplicates concurrent retry requests',async()=>{
+    const input=request(),job=await submitProductionJob('author',input,'http://localhost');
+    sessions.get(job.sessionId).status='succeeded';
+    const retry=randomUUID(),before=postMessage.mock.calls.length;
+    const results=await Promise.all([retryProductionJob('author',input.idempotencyKey,retry),retryProductionJob('author',input.idempotencyKey,retry)]);
+    expect(results.every(r=>r.sessionId===job.sessionId&&r.status==='running')).toBe(true);
+    expect(postMessage.mock.calls.length).toBe(before+1);
+    await expect(retryProductionJob('other',input.idempotencyKey,randomUUID())).rejects.toMatchObject({status:404});
+  });
+  it('does not enqueue a second message after the retry response is lost',async()=>{
+    const input=request(),job=await submitProductionJob('author',input,'http://localhost');
+    sessions.get(job.sessionId).status='failed';const retry=randomUUID(),before=postMessage.mock.calls.length;
+    failAfterMessageCommit=true;
+    await expect(retryProductionJob('author',input.idempotencyKey,retry)).rejects.toThrow('response lost');
+    expect((await retryProductionJob('author',input.idempotencyKey,retry)).sessionId).toBe(job.sessionId);
+    expect(postMessage.mock.calls.length).toBe(before+1);
+  });
+
 });

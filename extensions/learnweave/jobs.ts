@@ -173,3 +173,31 @@ export async function cancelProductionJob(ownerId: string, key: string) {
     await (await getAgentSessionStore()).requestCancel(job.sessionId);
   return job;
 }
+
+/** Resume an unsuccessful producer in the SAME session. The message marker is durable
+ * in the session store, so a lost HTTP response cannot enqueue the retry twice. */
+export async function retryProductionJob(ownerId: string, key: string, retryId: string) {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuid.test(key) || !uuid.test(retryId)) throw new ProductionError('生产重试身份无效', 400);
+  key = key.toLowerCase(); retryId = retryId.toLowerCase();
+  const p = await provider();
+  const store = await getAgentSessionStore();
+  if (await store.readRetirement(ownerId)) throw new ProductionError('作者身份已变化，请重新授权', 409);
+  await p.withTransaction(async (tx) => {
+    await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`lw-production:${ownerId}:${key}`]);
+    const row = (await tx.query('SELECT * FROM learnweave_production_jobs WHERE owner_id=$1 AND idempotency_key=$2', [ownerId, key])).rows[0];
+    if (!row) throw new ProductionError('生产任务不存在', 404);
+    const sessionId = String(row.session_id);
+    const session = await store.getSession(sessionId);
+    if (!session || session.ownerId !== ownerId) throw new ProductionError('生产任务不存在', 404);
+    if (row.result) return;
+    const marker = `[learnweave-production-retry:${retryId}]`;
+    const messages = await store.listUserMessages(sessionId);
+    if (messages.some(m => m.text.startsWith(marker))) return;
+    if (!['succeeded', 'failed', 'cancelled'].includes(session.status)) return;
+    await store.postUserMessage(sessionId, {
+      text: `${marker}\n继续完成原来的单任务生产请求。上次未得到可导出的有效产物；请核对工具错误并重试失败步骤，复用本会话已保存的容器和成功素材，不重做已完成部分。保持原模板修订、activityId、材料角色、任务配置和评分绑定不变，不询问用户或放宽验证。图片服务临时失败时可以重试相同教学要求的图片。最终必须通过 lw_save_course 并得到 exportReady=true；不要只声称完成。`,
+    }, { expectedOwnerId: ownerId });
+  });
+  return readProductionJob(ownerId, key);
+}

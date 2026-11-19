@@ -1,7 +1,7 @@
 import { authorizeMediaModel } from '@/lib/server/model-config/media';
 import { DEFAULT_TTS_MODELS, DEFAULT_TTS_VOICES, TTS_PROVIDERS } from '@/lib/audio/constants';
 import { generateTTS, TTSRequestTimeoutError } from '@/lib/audio/tts-providers';
-import type { TTSProviderId } from '@/lib/audio/types';
+import type { TTSModelConfig, TTSProviderId } from '@/lib/audio/types';
 import { BROWSER_NATIVE_TTS_PROVIDER_ID } from '@/lib/audio/provider-enablement';
 import type { LegacySpeechAction, SpeechAction } from '@/lib/types/action';
 import type { GeneratedAgentConfig, Scene } from '@/lib/types/stage';
@@ -35,29 +35,38 @@ function audioMime(format: string) {
   return format === 'wav' ? 'audio/wav' : format === 'ogg' ? 'audio/ogg' : 'audio/mpeg';
 }
 
-/** Server-configured narration synthesis into the stage's classroom-media path. */
-export async function synthesizeSceneNarration(input: SceneTtsInput): Promise<SceneTtsSummary> {
-  // The tts slot decides the provider; the narrator's bound voice applies
-  // only when it belongs to that provider.
-  const connection = await serverMediaConnection('tts', input.ownerId);
+async function narrationConfig(
+  ownerId?: string,
+  bound?: ReturnType<typeof narratorVoice>,
+  language?: string,
+): Promise<TTSModelConfig | undefined> {
+  const connection = await serverMediaConnection('tts', ownerId);
   if (
     !connection ||
     connection === 'off' ||
     connection.providerId === BROWSER_NATIVE_TTS_PROVIDER_ID
   ) {
-    return { available: false, changed: false, generated: 0, skipped: 0, failed: [] };
+    return;
   }
   const providerId = connection.providerId as TTSProviderId;
-  const bound = narratorVoice(input.roster);
   const provider = TTS_PROVIDERS[providerId as keyof typeof TTS_PROVIDERS];
   const apiKey = connection.apiKey ?? '';
   if (provider?.requiresApiKey && !apiKey) {
-    return { available: false, changed: false, generated: 0, skipped: 0, failed: [] };
+    return;
   }
+  const locale = language?.toLowerCase();
+  const translatedVoice =
+    locale &&
+    (provider?.voices.find((voice) => voice.language?.toLowerCase() === locale) ||
+      provider?.voices.find(
+        (voice) => voice.language?.split('-')[0]?.toLowerCase() === locale.split('-')[0],
+      ));
   const voice =
     bound?.providerId === providerId && bound.voiceId
       ? bound.voiceId
-      : DEFAULT_TTS_VOICES[providerId as keyof typeof DEFAULT_TTS_VOICES] || '';
+      : (translatedVoice ? translatedVoice.id : undefined) ||
+        DEFAULT_TTS_VOICES[providerId as keyof typeof DEFAULT_TTS_VOICES] ||
+        '';
   const model =
     connection.modelId ?? (DEFAULT_TTS_MODELS[providerId as keyof typeof DEFAULT_TTS_MODELS] || '');
   // A configured slot's own model; the legacy server pins apply only to a default.
@@ -66,6 +75,43 @@ export async function synthesizeSceneNarration(input: SceneTtsInput): Promise<Sc
       ? slotTTSModel(providerId, model, voice)
       : resolveTTSModel(providerId, model, voice)) || '';
   authorizeMediaModel(connection, 'tts', modelId);
+  return {
+    providerId,
+    modelId,
+    apiKey,
+    baseUrl: connection.baseUrl,
+    managed: connection.managed,
+    publicOnly: connection.userEndpoint,
+    voice,
+    providerOptions: adapterOptions(connection),
+  };
+}
+
+export async function synthesizeClassroomPrompt(input: {
+  stageId: string;
+  ownerId: string;
+  language: string;
+  text: string;
+  signal?: AbortSignal;
+}): Promise<string> {
+  const config = await narrationConfig(input.ownerId, undefined, input.language);
+  if (!config) throw Error('当前作者没有可用的服务端 TTS');
+  const audio = await generateTTS({ ...config, signal: input.signal }, input.text);
+  if (!['mp3', 'wav', 'ogg'].includes(audio.format) || !audio.audio.length)
+    throw Error('题干 TTS 未返回受支持的非空音频');
+  return persistClassroomMediaBytes({
+    stageId: input.stageId,
+    bytes: audio.audio,
+    mime: audioMime(audio.format),
+    prefix: 'tts-prompt',
+    signal: input.signal,
+  });
+}
+
+/** Server-configured narration synthesis into the stage's classroom-media path. */
+export async function synthesizeSceneNarration(input: SceneTtsInput): Promise<SceneTtsSummary> {
+  const config = await narrationConfig(input.ownerId, narratorVoice(input.roster));
+  if (!config) return { available: false, changed: false, generated: 0, skipped: 0, failed: [] };
   let generated = 0;
   let skipped = 0;
   const failed: string[] = [];
@@ -80,16 +126,8 @@ export async function synthesizeSceneNarration(input: SceneTtsInput): Promise<Sc
     try {
       const audio = await generateTTS(
         {
-          providerId,
-          modelId,
-          apiKey,
-          baseUrl: connection.baseUrl,
-          managed: connection.managed,
-          publicOnly: connection.userEndpoint,
-          voice,
+          ...config,
           speed: speech.speed,
-          // The provider's own options (a VoxCPM backend, say).
-          providerOptions: adapterOptions(connection),
           signal: input.signal,
         },
         speech.text,

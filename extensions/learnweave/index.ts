@@ -4,6 +4,7 @@ import { componentSceneTool } from './components/production';
 import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { learnweaveEnabled } from './config';
+import { promptAudioTool } from './prompt-audio';
 import { wrapTools, runStageMutation, type ToolDeps } from './adapter';
 import {
   readCourse,
@@ -171,7 +172,14 @@ export async function buildLearnWeaveTools(deps: ToolDeps): Promise<AgentTool[]>
     },
   };
   return wrapTools(
-    [read, plan, componentSceneTool(deps, () => currentPlan), componentMediaTool(deps), save],
+    [
+      read,
+      plan,
+      componentSceneTool(deps, () => currentPlan),
+      componentMediaTool(deps),
+      promptAudioTool(deps),
+      save,
+    ],
     deps,
   );
 }

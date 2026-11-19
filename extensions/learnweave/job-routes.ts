@@ -7,6 +7,7 @@ import {
   submitProductionJob,
   readProductionJob,
   cancelProductionJob,
+  retryProductionJob,
 } from './jobs';
 import { isAgentRuntimeConfigured } from '@/lib/config/feature-flags';
 import { assertWorkspaceModelsAuthorized } from '@/lib/server/model-config/runtime';
@@ -14,11 +15,18 @@ import { findSkill } from '@/lib/server/agent-runtime/skills';
 import { buildRequestOrigin } from '@/lib/server/classroom-storage';
 import { ownerWriteErrorResponse } from '@/lib/persistence/owner-merges';
 
-export async function productionJobRoute(req: NextRequest, key?: string, cancel = false) {
+export async function productionJobRoute(req: NextRequest, key?: string, cancel = false, retry = false) {
   if (!learnweaveEnabled() || !isAgentRuntimeConfigured())
     return new Response('Not found', { status: 404 });
   return withRequestOwner(req, async ({ ownerId }, headers) => {
     try {
+      if (key && retry) {
+        let body: {retryId?: unknown};
+        try { body=await req.json(); } catch { throw new ProductionError('请求必须为 JSON',400); }
+        if(typeof body?.retryId!=='string')throw new ProductionError('缺少重试身份',400);
+        await assertWorkspaceModelsAuthorized(ownerId,['agent','image','video','tts']);
+        return ownerJson(await retryProductionJob(ownerId,key,body.retryId),202,headers);
+      }
       if (key)
         return ownerJson(
           await (cancel ? cancelProductionJob(ownerId, key) : readProductionJob(ownerId, key)),
