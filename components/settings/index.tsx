@@ -3,12 +3,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { X, Settings, Boxes, CreditCard, GraduationCap, Sparkles } from 'lucide-react';
+import { X, Settings, Boxes, CreditCard, GraduationCap, Sparkles, BarChart3 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useAgentRuntimeAvailable } from '@/lib/hooks/use-agent-runtime-available';
 import { settingsSections } from '@/lib/model-settings/shape';
 import { useModelSettingsView } from '@/lib/model-settings/use-model-settings';
 import { cn } from '@/lib/utils';
+import { sandboxRequest } from '@/components/sandbox/client';
+import { SandboxSettings } from './sandbox-settings';
 import { GeneralSettings } from './general-settings';
 import { SkillSettings } from './skill-settings';
 import { TokenPlanSettings } from './token-plan-settings';
@@ -36,6 +38,7 @@ const NAV: { id: SettingsSection; icon: typeof Settings; label: string }[] = [
   { id: 'model-services', icon: Boxes, label: 'settings.modelServices.nav' },
   { id: 'course-models', icon: GraduationCap, label: 'settings.courseModels.nav' },
   { id: 'skills', icon: Sparkles, label: 'settings.skills.nav' },
+  { id: 'sandbox', icon: Boxes, label: 'sandbox.settings.title' },
   { id: 'general', icon: Settings, label: 'settings.systemSettings' },
 ];
 
@@ -56,6 +59,23 @@ export function SettingsDialog({ open, onOpenChange, initialSection }: SettingsD
   // available. Until then — and on a deployment without it — the item is
   // hidden, and a request to open it lands on the first section instead.
   const skillsAvailable = useAgentRuntimeAvailable();
+  const [sandboxSettingsAvailable, setSandboxSettingsAvailable] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    // The same server-side deployment/admin gate protects both discovery and writes.
+    sandboxRequest('/api/sandbox/settings').then(
+      () => {
+        if (current) setSandboxSettingsAvailable(true);
+      },
+      () => {
+        if (current) setSandboxSettingsAvailable(false);
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [open]);
   // Until the model settings are read, every section is listed; each one
   // shows its own loading state.
   const modelView = useModelSettingsView();
@@ -64,13 +84,15 @@ export function SettingsDialog({ open, onOpenChange, initialSection }: SettingsD
     ? SERVICE_TABS.filter((tab) => sections.modelServices.includes(TAB_CAPABILITY[tab]))
     : SERVICE_TABS;
   const listed = (id: SettingsSection) =>
-    id === 'skills'
-      ? skillsAvailable
-      : id === 'token-plan'
-        ? !sections || sections.tokenPlan
-        : id === 'model-services'
-          ? serviceTabs.length > 0
-          : true;
+    id === 'sandbox'
+      ? sandboxSettingsAvailable
+      : id === 'skills'
+        ? skillsAvailable
+        : id === 'token-plan'
+          ? !sections || sections.tokenPlan
+          : id === 'model-services'
+            ? serviceTabs.length > 0
+            : true;
   const nav = NAV.filter(({ id }) => listed(id));
   // A section that is not listed (asked for, or the default) lands on the first one.
   const activeSection = listed(requestedSection) ? requestedSection : nav[0].id;
@@ -90,6 +112,9 @@ export function SettingsDialog({ open, onOpenChange, initialSection }: SettingsD
       }
     }
   }, [open, initialSection]);
+
+  // The Token Plan section puts its region switch in the header.
+  const [regionSlot, setRegionSlot] = useState<HTMLDivElement | null>(null);
 
   // Resizable sidebar width
   const [sidebarWidth, setSidebarWidth] = useState(192);
@@ -151,6 +176,8 @@ export function SettingsDialog({ open, onOpenChange, initialSection }: SettingsD
         );
       case 'course-models':
         return <h2 className="text-lg font-semibold">{t('settings.courseModels.nav')}</h2>;
+      case 'sandbox':
+        return <h2 className="text-lg font-semibold">{t('sandbox.settings.title')}</h2>;
       case 'general':
         return <h2 className="text-lg font-semibold">{t('settings.systemSettings')}</h2>;
       case 'skills':
@@ -161,7 +188,15 @@ export function SettingsDialog({ open, onOpenChange, initialSection }: SettingsD
           </>
         );
       case 'token-plan':
-        return <h2 className="text-lg font-semibold">{t('settings.tokenPlan.nav')}</h2>;
+        return (
+          <div className="flex min-w-0 items-baseline gap-3">
+            <h2 className="shrink-0 text-lg font-semibold">{t('settings.tokenPlan.nav')}</h2>
+            {/* Beside the region switch on a narrow dialog there is no room for it. */}
+            <p className="hidden min-w-0 truncate text-xs text-muted-foreground lg:block">
+              {t('settings.tokenPlan.subtitle')}
+            </p>
+          </div>
+        );
       default:
         return null;
     }
@@ -172,7 +207,7 @@ export function SettingsDialog({ open, onOpenChange, initialSection }: SettingsD
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="h-[85vh] p-0 gap-0 block max-sm:h-[100dvh] max-sm:max-w-none max-sm:rounded-none"
+        className="home-settings-dialog h-[85vh] p-0 gap-0 block max-sm:h-[100dvh] max-sm:max-w-none max-sm:rounded-none"
         showCloseButton={false}
       >
         <DialogTitle className="sr-only">{t('settings.title')}</DialogTitle>
@@ -215,8 +250,14 @@ export function SettingsDialog({ open, onOpenChange, initialSection }: SettingsD
             {/* Header */}
             <div className="flex items-center justify-between gap-3 border-b p-4 sm:p-5">
               <div className="flex items-center gap-3">{getHeaderContent()}</div>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)}>
+              <div className="flex shrink-0 items-center gap-2">
+                {activeSection === 'token-plan' && <div ref={setRegionSlot} />}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t('common.close')}
+                  onClick={() => onOpenChange(false)}
+                >
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -225,17 +266,21 @@ export function SettingsDialog({ open, onOpenChange, initialSection }: SettingsD
             {/* Content */}
             <div
               className={cn(
-                'p-3 sm:p-5',
+                // Token Plan packs two columns: a little less padding.
+                activeSection === 'token-plan' ? 'p-3 sm:p-4' : 'p-3 sm:p-5',
                 fillsHeight ? 'flex min-h-0 flex-1 flex-col pt-3' : 'flex-1 overflow-y-auto',
               )}
             >
               {activeSection === 'general' && <GeneralSettings />}
+              {activeSection === 'sandbox' && <SandboxSettings />}
 
               {activeSection === 'skills' && <SkillSettings />}
 
               {activeSection === 'token-plan' && (
                 <ServerSettingsGate>
-                  {(view, apply) => <TokenPlanSettings view={view} apply={apply} />}
+                  {(view, apply) => (
+                    <TokenPlanSettings view={view} apply={apply} regionSlot={regionSlot} />
+                  )}
                 </ServerSettingsGate>
               )}
 
@@ -269,8 +314,24 @@ export function SettingsDialog({ open, onOpenChange, initialSection }: SettingsD
               )}
             </div>
 
-            {/* Footer: every change is saved as it is made; only close here. */}
+            {/* Footer: every change is saved as it is made; only close here. The
+                Token Plan section links this deployment's usage (in System). */}
             <div className="flex items-center justify-end gap-3 px-5 py-3 border-t bg-muted/30">
+              {activeSection === 'token-plan' && listed('general') && (
+                <p className="mr-auto flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                  <BarChart3 className="size-3.5 shrink-0" aria-hidden="true" />
+                  <span>{t('settings.tokenPlan.deploymentUsage')}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{t('settings.tokenPlan.deploymentUsageNote')}</span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('general')}
+                    className="rounded-sm font-medium text-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {t('settings.tokenPlan.viewStats')} →
+                  </button>
+                </p>
+              )}
               <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
                 {t('settings.close')}
               </Button>

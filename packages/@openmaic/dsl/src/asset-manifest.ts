@@ -27,7 +27,7 @@ import { slideMediaSlotDescriptors, type SlideMediaSlotKind } from './slide-medi
 import { isSlideContent, type Scene, type SceneType, type Stage } from './stage.js';
 
 /** The role a referenced asset plays in the document. */
-export type AssetKind = 'image' | 'video' | 'audio' | 'poster' | 'background';
+export type AssetKind = 'image' | 'video' | 'audio' | 'poster' | 'background' | 'pbl-project';
 
 /**
  * Provenance and byte metadata an export can attach to a manifest entry.
@@ -171,6 +171,10 @@ export function enumerateAssetManifest(
     if (scene.content.type === 'component') {
       for (const slot of componentAssetReferences(scene.content as ComponentContent))
         record(slot.ref, slot.kind, `scene:${sceneIndex}:component:${slot.path}`);
+    }
+    const content = scene.content as { type: string; projectV3?: { assetId?: unknown } };
+    if (content.type === 'pbl' && typeof content.projectV3?.assetId === 'string') {
+      record(content.projectV3.assetId, 'pbl-project', `scene:${sceneIndex}:projectV3`);
     }
     if (isSlideContent(scene.content)) {
       visitSlide(scene.content.canvas, `scene:${sceneIndex}:canvas`);

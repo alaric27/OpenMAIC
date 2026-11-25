@@ -158,6 +158,49 @@ describe('token plan recommendation', () => {
     expect(tokenPlanConflicts(kimiFirst, recommendationIn(kimiFirst, 'minimax'))).toHaveLength(1);
   });
 
+  it('a higher-priority plan holds no capability its account turned out not to have', async () => {
+    const minimaxWithoutVideo = await applyModelSettingsChange(null, addPlan('minimax'), {
+      unsupportedCapabilities: ['video'],
+    });
+    const config = await applyModelSettingsChange(minimaxWithoutVideo, addPlan('volcengine-ark'));
+    const held = slotsHeldByHigherPlans(viewOf(config), 'volcengine-ark');
+    expect(held).not.toContain('video');
+    expect(held).toContain('image');
+    expect(recommendationIn(viewOf(config), 'volcengine-ark')).toHaveProperty('video');
+  });
+
+  it('a higher-priority plan holds a capability while any of its accounts has it', async () => {
+    // The deployment serves MiniMax on a full tier; the workspace's own MiniMax is a Go plan.
+    deployment({ providers: { operator: { preset: 'minimax', apiKey: 'sk-operator-full' } } });
+    const config = await applyModelSettingsChange(null, addPlan('minimax'), {
+      unsupportedCapabilities: ['video'],
+    });
+    const view = viewOf(await applyModelSettingsChange(config, addPlan('volcengine-ark')));
+    expect(view.providers.filter((provider) => provider.preset === 'minimax')).toHaveLength(2);
+    // Whichever comes first, video stays held by MiniMax.
+    expect(slotsHeldByHigherPlans(view, 'volcengine-ark')).toContain('video');
+    const reversed = { ...view, providers: [...view.providers].reverse() };
+    expect(slotsHeldByHigherPlans(reversed, 'volcengine-ark')).toContain('video');
+  });
+
+  it('a new key with a capability the old one lacked keeps the choice made for it', async () => {
+    // Connected on a tier without video, with video turned off.
+    let config = await applyModelSettingsChange(null, addPlan('minimax-intl'), {
+      unsupportedCapabilities: ['video'],
+    });
+    config = await applyModelSettingsChange(config, { kind: 'slots', set: { video: null } });
+    const view = viewOf(config);
+    const preset = view.presets.find((entry) => entry.id === 'minimax-intl')!;
+    // Nothing about video to ask: the plan does not offer it yet.
+    expect(connectConflicts(view, preset).map((conflict) => conflict.slot.slot)).not.toContain(
+      'video',
+    );
+    // The new key's tier includes video (the vendor reports nothing missing).
+    const server = serverApply(config);
+    await connectTokenPlan(server.apply, view, preset, 'sk-cp-plus-0002', 'overwrite');
+    expect(server.config()?.slots?.video).toBeNull();
+  });
+
   it('a higher-priority plan without a usable key holds nothing', async () => {
     const config = await configure(addPlan('tokendance'), addPlan('kimi-coding-plan'), {
       kind: 'provider',
@@ -559,4 +602,115 @@ describe('token plan web fetch', () => {
       ).toMatchObject({ status: 'assigned', providerId: readerId, registryId: 'kimi' });
     },
   );
+});
+
+describe('DeepSeek token plan', () => {
+  it.each(['keep', 'overwrite'] as const)(
+    'lights chat, speech, OCR, search and fetch with one key in %s mode, and disconnect restores defaults',
+    async (mode) => {
+      const view = viewOf(null);
+      const preset = view.presets.find((entry) => entry.id === 'deepseek-token-plan')!;
+      expect(connectConflicts(view, preset)).toEqual([]);
+      const server = serverApply(null);
+      const result = await connectTokenPlan(server.apply, view, preset, 'sk-ds-plan', mode);
+      expect(result).toMatchObject({
+        status: 'done',
+        providerId: 'deepseek-token-plan',
+        assigned: ['llm', 'tts', 'asr', 'webFetch', 'webSearch', 'document'],
+      });
+      expect(server.config()?.slots).toEqual({
+        llm: 'deepseek-token-plan:deepseek-flash',
+        tts: 'deepseek-token-plan',
+        asr: 'deepseek-token-plan',
+        document: 'deepseek-token-plan',
+        webSearch: 'deepseek-token-plan',
+        webFetch: 'deepseek-token-plan',
+      });
+      const { resolveSlot } = await import('@/lib/server/model-config/resolve-slot');
+      const layers = [{ source: 'workspace' as const, config: server.config()! }];
+      for (const slot of ['llm', 'webSearch', 'webFetch'] as const) {
+        expect(resolveSlot(slot, layers), slot).toMatchObject({
+          status: 'assigned',
+          registryId: 'deepseek',
+          apiKey: 'sk-ds-plan',
+          baseUrl: 'https://api.deepseek.com/v1',
+        });
+      }
+      // The speech and OCR tools have no model: the provider alone serves them.
+      for (const [slot, registryId] of [
+        ['tts', 'deepseek-tts'],
+        ['asr', 'deepseek-asr'],
+        ['document', 'deepseek-ocr'],
+      ] as const) {
+        const resolved = resolveSlot(slot, layers);
+        expect(resolved, slot).toMatchObject({
+          status: 'assigned',
+          registryId,
+          apiKey: 'sk-ds-plan',
+          baseUrl: 'https://api.deepseek.com/v1',
+        });
+        expect(resolved, slot).not.toHaveProperty('customBaseUrl');
+      }
+      await server.apply({ kind: 'remove-provider', id: 'deepseek-token-plan' });
+      expect(server.config()?.slots ?? {}).toEqual({});
+      expect(
+        viewOf(server.config()).slots.find((slot) => slot.slot === 'webFetch')?.effective,
+      ).toMatchObject({ status: 'assigned', providerId: 'builtin', registryId: 'builtin' });
+    },
+  );
+
+  it('leaves image, video and a personal DeepSeek provider untouched', async () => {
+    const initial = await configure(
+      { kind: 'provider', id: 'deepseek', preset: 'deepseek', apiKey: 'sk-personal-0001' },
+      {
+        kind: 'slots',
+        set: { llm: 'deepseek:deepseek-v4-pro', image: null, video: null, tts: null },
+      },
+    );
+    const view = viewOf(initial);
+    // A personal DeepSeek key is not the plan: the plan is not connected yet.
+    const preset = view.presets.find((entry) => entry.id === 'deepseek-token-plan')!;
+    expect(view.providers.some((provider) => provider.preset === preset.id)).toBe(false);
+    // TTS turned off is a choice of the workspace: the plan's speech replaces it.
+    expect(connectConflicts(view, preset).map((conflict) => conflict.slot.slot)).toEqual([
+      'llm',
+      'tts',
+    ]);
+
+    const server = serverApply(initial);
+    const result = await connectTokenPlan(server.apply, view, preset, 'sk-ds-plan', 'overwrite');
+    expect(result).toMatchObject({ status: 'done', providerId: 'deepseek-token-plan' });
+    expect(server.config()?.slots).toEqual({
+      llm: 'deepseek-token-plan:deepseek-flash',
+      image: null,
+      video: null,
+      tts: 'deepseek-token-plan',
+      asr: 'deepseek-token-plan',
+      document: 'deepseek-token-plan',
+      webSearch: 'deepseek-token-plan',
+      webFetch: 'deepseek-token-plan',
+    });
+
+    await server.apply({ kind: 'remove-provider', id: 'deepseek-token-plan' });
+    expect(server.config()?.providers?.deepseek).toEqual(initial.providers?.deepseek);
+    // The plan replaced the turned-off TTS slot; disconnecting drops its
+    // assignment, so the slot follows the server again.
+    expect(server.config()?.slots).toEqual({ image: null, video: null });
+  });
+
+  it('yields the slots a higher-priority connected plan recommends', async () => {
+    const view = viewOf(
+      await configure(addPlan('kimi-coding-plan'), addPlan('deepseek-token-plan')),
+    );
+    expect([...slotsHeldByHigherPlans(view, 'deepseek-token-plan')]).toEqual(
+      expect.arrayContaining(['llm', 'webSearch', 'webFetch']),
+    );
+    // Kimi does not cover speech or documents: DeepSeek still fills those.
+    expect(recommendationIn(view, 'deepseek-token-plan')).toEqual({
+      tts: 'deepseek-token-plan',
+      asr: 'deepseek-token-plan',
+      document: 'deepseek-token-plan',
+    });
+    expect(slotsHeldByHigherPlans(view, 'kimi-coding-plan').size).toBe(0);
+  });
 });

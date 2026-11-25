@@ -289,6 +289,44 @@ describe('modelSettingsView', () => {
     ]);
   });
 
+  it('shows declared windows on chat rows the catalogue does not describe', () => {
+    deployment({
+      providers: {
+        gateway: {
+          preset: 'openai-compatible',
+          apiKey: 'sk-operator',
+          baseUrl: 'https://gateway.example/v1',
+          models: ['mystery', 'gpt-5.6'],
+          modelContextWindows: { mystery: 1_000_000, 'gpt-5.6': 400_000 },
+        },
+      },
+    });
+    const gateway = modelSettingsView(null).providers.find((entry) => entry.id === 'gateway')!;
+    const rows = gateway.capabilities.chat?.models ?? [];
+    // A row without catalogue metadata shows the declared window; on an
+    // endpoint the catalogue does not cover, the declaration also wins a
+    // name-colliding catalogue value.
+    expect(rows.find((model) => model.id === 'mystery')?.contextWindow).toBe(1_000_000);
+    expect(rows.find((model) => model.id === 'gpt-5.6')?.contextWindow).toBe(400_000);
+    expect(gateway.modelContextWindows).toEqual({ mystery: 1_000_000, 'gpt-5.6': 400_000 });
+  });
+
+  it('keeps the catalogue window on a trusted provider the catalogue covers', () => {
+    deployment({
+      providers: {
+        operator: {
+          preset: 'deepseek',
+          apiKey: 'sk-operator-secret-0001',
+          models: ['deepseek-v4-pro'],
+          modelContextWindows: { 'deepseek-v4-pro': 100_000 },
+        },
+      },
+    });
+    const operator = modelSettingsView(null).providers.find((entry) => entry.id === 'operator')!;
+    const row = operator.capabilities.chat?.models.find((model) => model.id === 'deepseek-v4-pro');
+    expect(row?.contextWindow).not.toBe(100_000);
+  });
+
   it('never shows credentials a stored endpoint carries', () => {
     const view = modelSettingsView({
       config: {
@@ -511,6 +549,55 @@ describe('applyModelSettingsChange', () => {
       apiKey: '',
     });
     expect(config.providers?.mine).toEqual({ preset: 'openai', models: ['gpt-5.6'] });
+  });
+
+  it('stores declared windows with the model list, pruned to it', async () => {
+    let config = await applyModelSettingsChange(null, {
+      kind: 'provider',
+      id: 'mine',
+      preset: 'openai',
+      apiKey: 'sk-1',
+    });
+    config = await applyModelSettingsChange(config, {
+      kind: 'provider',
+      id: 'mine',
+      preset: 'openai',
+      models: ['gpt-5.6', 'mystery'],
+      modelContextWindows: { 'gpt-5.6': 100_000, mystery: 1_000_000 },
+    });
+    expect(config.providers?.mine.modelContextWindows).toEqual({
+      'gpt-5.6': 100_000,
+      mystery: 1_000_000,
+    });
+    // Editing the list alone prunes the windows of models it dropped.
+    config = await applyModelSettingsChange(config, {
+      kind: 'provider',
+      id: 'mine',
+      preset: 'openai',
+      models: ['mystery'],
+    });
+    expect(config.providers?.mine.modelContextWindows).toEqual({ mystery: 1_000_000 });
+    // A window for a model the list does not hold is refused, not stored.
+    await expect(
+      applyModelSettingsChange(config, {
+        kind: 'provider',
+        id: 'mine',
+        preset: 'openai',
+        modelContextWindows: { other: 1_000 },
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_PROVIDER',
+      message: expect.stringContaining("not in this provider's model list"),
+    });
+    // Removing the list removes the windows with it.
+    config = await applyModelSettingsChange(config, {
+      kind: 'provider',
+      id: 'mine',
+      preset: 'openai',
+      models: null,
+      modelContextWindows: null,
+    });
+    expect(config.providers?.mine).toEqual({ preset: 'openai', apiKey: 'sk-1' });
   });
 
   it('keeps workspace providers out of what only the deployment may set', async () => {
@@ -828,5 +915,162 @@ describe('importModelSettings', () => {
     expect(result.skipped).toEqual([
       expect.objectContaining({ kind: 'provider', id: 'tts', code: 'INVALID_PROVIDER' }),
     ]);
+  });
+});
+
+it('exposes non-secret voice defaults for previewing an inactive deployment provider', async () => {
+  deployment({
+    providers: {
+      active: { preset: 'openai-tts', apiKey: 'active-secret', models: ['tts-1'] },
+      inactive: {
+        preset: 'openai-tts',
+        apiKey: 'inactive-secret',
+        models: ['custom-tts'],
+        options: { defaultVoice: 'vivian' },
+      },
+    },
+    slots: { tts: 'active:tts-1' },
+  });
+  const view = modelSettingsView(null);
+  const inactive = view.providers.find((p) => p.id === 'inactive')!;
+  const { defaultVoiceFor } = await import('@/lib/audio/tts-selection');
+  expect(defaultVoiceFor('openai-tts', 'custom-tts', inactive.options)).toBe('vivian');
+  expect(JSON.stringify(inactive)).not.toContain('inactive-secret');
+  expect(view.providers.find((p) => p.id === 'active')?.options).toBeUndefined();
+});
+
+it('also exposes imported workspace defaults for inactive provider previews', async () => {
+  const view = modelSettingsView({
+    config: {
+      providers: {
+        own: {
+          preset: 'openai-tts',
+          apiKey: 'workspace-secret',
+          options: { defaultVoice: 'serena' },
+        },
+      },
+    },
+    revision: 1,
+    unreadableSecrets: [],
+  });
+  const provider = view.providers.find((p) => p.id === 'own')!;
+  const { defaultVoiceFor } = await import('@/lib/audio/tts-selection');
+  expect(defaultVoiceFor('openai-tts', undefined, provider.options)).toBe('serena');
+  expect(JSON.stringify(provider)).not.toContain('workspace-secret');
+});
+
+it('passes an inactive provider catalogue to previews when no default is configured', async () => {
+  deployment({
+    providers: {
+      inactive: {
+        preset: 'openai-tts',
+        apiKey: 'secret',
+        models: ['custom-tts'],
+        voices: [{ id: 'vivian', name: 'Vivian' }],
+      },
+    },
+  });
+  const provider = modelSettingsView(null).providers.find((p) => p.id === 'inactive')!;
+  const { defaultVoiceFor } = await import('@/lib/audio/tts-selection');
+  expect(defaultVoiceFor('openai-tts', 'custom-tts', provider.options, provider.voices)).toBe(
+    'vivian',
+  );
+});
+
+describe('importModelSettings with declared context windows', () => {
+  it('counts a provider the same only with the same declared windows', async () => {
+    const base = {
+      preset: 'openai',
+      apiKey: 'sk-1',
+      models: ['mystery'],
+      modelContextWindows: { mystery: 1_000_000 },
+    };
+    const config = await applyModelSettingsChange(null, {
+      kind: 'provider',
+      id: 'mine',
+      ...base,
+    });
+    const same = await importModelSettings(config, { providers: { mine: { ...base } } });
+    expect(same.skipped[0]).toMatchObject({ kind: 'provider', id: 'mine', code: 'EXISTS_SAME' });
+    const changed = await importModelSettings(config, {
+      providers: { mine: { ...base, modelContextWindows: { mystery: 2_000_000 } } },
+    });
+    expect(changed.skipped[0]).toMatchObject({
+      kind: 'provider',
+      id: 'mine',
+      code: 'EXISTS_DIFFERENT',
+    });
+  });
+
+  it('imports a provider with declared windows', async () => {
+    const result = await importModelSettings(null, {
+      providers: {
+        mine: {
+          preset: 'openai',
+          apiKey: 'sk-1',
+          models: ['mystery'],
+          modelContextWindows: { mystery: 1_000_000 },
+        },
+      },
+    });
+    expect(result.imported).toEqual([{ kind: 'provider', id: 'mine' }]);
+    expect(result.config.providers?.mine.modelContextWindows).toEqual({ mystery: 1_000_000 });
+  });
+});
+
+describe('capabilities the account behind a key does not have', () => {
+  const save = (current: Parameters<typeof applyModelSettingsChange>[0], apiKey?: string) =>
+    applyModelSettingsChange(
+      current,
+      { kind: 'provider', id: 'go', preset: 'minimax-intl', ...(apiKey ? { apiKey } : {}) },
+      apiKey ? { unsupportedCapabilities: ['video'] } : {},
+    );
+
+  beforeEach(() => deployment({}));
+
+  it('stores what the vendor reported with the key and stops offering it', async () => {
+    const next = await save(null, 'sk-cp-go');
+    expect(next.providers?.go?.unsupportedCapabilities).toEqual(['video']);
+    const view = modelSettingsView({ config: next, revision: 1, unreadableSecrets: [] });
+    const provider = view.providers.find((entry) => entry.id === 'go')!;
+    expect(provider.capabilities.video).toBeUndefined();
+    expect(provider.capabilities.image).toBeDefined();
+    await expect(
+      applyModelSettingsChange(next, { kind: 'slots', set: { video: 'go:MiniMax-Hailuo-2.3' } }),
+    ).rejects.toMatchObject({ code: 'INVALID_ASSIGNMENT' });
+  });
+
+  it('drops the video assignment a new key without video leaves behind, and nothing else', async () => {
+    const before = {
+      providers: {
+        go: { preset: 'minimax-intl', apiKey: 'sk-cp-plus' },
+        other: { preset: 'minimax', apiKey: 'sk-cp-cn' },
+      },
+      slots: { video: 'go:MiniMax-Hailuo-2.3', image: 'go:image-01', tts: 'other:speech-2.8-hd' },
+    } as Parameters<typeof applyModelSettingsChange>[0];
+    const next = await save(before, 'sk-cp-go');
+    expect(next.slots).toEqual({ image: 'go:image-01', tts: 'other:speech-2.8-hd' });
+    // Another plan's video stays where it is.
+    const elsewhere = await save({ ...before, slots: { video: 'other:T2V-01' } }, 'sk-cp-go');
+    expect(elsewhere.slots).toEqual({ video: 'other:T2V-01' });
+  });
+
+  it('keeps the finding on an edit that keeps the key, and forgets it with a new key', async () => {
+    const connected = await save(null, 'sk-cp-go');
+    const edited = await applyModelSettingsChange(connected, {
+      kind: 'provider',
+      id: 'go',
+      preset: 'minimax-intl',
+      models: ['MiniMax-M3'],
+    });
+    expect(edited.providers?.go?.unsupportedCapabilities).toEqual(['video']);
+    // A new key the vendor said nothing about: the preset's capabilities stand.
+    const rekeyed = await applyModelSettingsChange(connected, {
+      kind: 'provider',
+      id: 'go',
+      preset: 'minimax-intl',
+      apiKey: 'sk-cp-max',
+    });
+    expect(rekeyed.providers?.go?.unsupportedCapabilities).toBeUndefined();
   });
 });

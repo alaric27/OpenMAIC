@@ -25,7 +25,8 @@ describe('stage writer registry is the single source (R6-P1-1)', () => {
   it('pins the exact writer set so scheduling/ownership cannot drift silently', () => {
     expect([...STAGE_WRITER_TOOL_NAMES].sort()).toEqual(
       [
-        // LearnWeave extension writer
+        // LearnWeave extension writers
+        'lw_save_component_scene',
         'lw_save_course',
         // course generation writers
         'set_roster',

@@ -19,6 +19,8 @@ services:
         - NEXT_PUBLIC_ENABLE_VIDEO_EXPORT=${NEXT_PUBLIC_ENABLE_VIDEO_EXPORT:-}
         - NEXT_PUBLIC_VIDEO_EXPORT_CTA_DESTINATION=${NEXT_PUBLIC_VIDEO_EXPORT_CTA_DESTINATION:-}
         - NEXT_PUBLIC_ENABLE_PPTX_IMPORT=${NEXT_PUBLIC_ENABLE_PPTX_IMPORT:-}
+        - NEXT_PUBLIC_WORKBENCH_ENABLED=${NEXT_PUBLIC_WORKBENCH_ENABLED:-}
+        # Previous name of NEXT_PUBLIC_WORKBENCH_ENABLED, still read for one release.
         - NEXT_PUBLIC_PRO_WORKBENCH_ENABLED=${NEXT_PUBLIC_PRO_WORKBENCH_ENABLED:-}
     # Published on loopback by default: the single-user owner (see
     # docker-compose.defaults.env) serves one course library to every request,
@@ -140,6 +142,7 @@ services:
       # per-user identity (see render-service/README.md).
       - RENDER_MAX_JOBS_PER_USER=0
       - RENDER_PREVIEW_TIMEOUT_MS=${RENDER_PREVIEW_TIMEOUT_MS:-20000}
+      - RENDER_INTERACTIVE_RUNTIME_WAIT_MS=${RENDER_INTERACTIVE_RUNTIME_WAIT_MS:-2000}
       # Separate Chromium capacity: previews can run alongside a video export.
       - RENDER_PREVIEW_MAX_CONCURRENCY=${RENDER_PREVIEW_MAX_CONCURRENCY:-1}
       - RENDER_PREVIEW_MAX_IN_FLIGHT=${RENDER_PREVIEW_MAX_IN_FLIGHT:-8}

@@ -34,7 +34,7 @@ Required peers:
 
 Optional peers (install only if your slides use the corresponding element type):
 
-- `echarts >= 5` — for chart elements
+- `echarts >= 5.5` — for chart elements (uses endpoint label alignment for compact charts)
 - `shiki >= 1` — for code elements
 
 ## Quickstart
@@ -112,8 +112,9 @@ Use `mathPriority="background"` for thumbnails: newly mounted or changed content
 shares a copy of the frame's remaining allowance after foreground layout effects,
 before paint. This leaves foreground capacity available if the user switches slides
 after thumbnails mount in the same frame; that frame may use both allowances.
-Remaining formulas render in idle time after foreground canvases; unrelated
-parent rerenders do not advance that queued work. Snapshot APIs still finish all
+Remaining formulas stay hidden until rendered in idle time after foreground
+canvases; unrelated parent rerenders do not advance that queued work. Formulas
+that cannot be typeset still appear as text. Snapshot APIs still finish all
 formulas synchronously within the existing per-prose-root hard caps.
 
 ### Play-time effects
@@ -222,6 +223,20 @@ once at your app shell to make those faces available:
 ```ts
 import '@openmaic/renderer/fonts.css';
 ```
+
+Slides whose fonts were picked in `@openmaic/editor`'s default picker name the
+Google Fonts versions of those typefaces (`Noto Sans SC`, `Noto Serif SC`,
+`LXGW WenKai`, `ZCOOL KuaiLe`). To render them, also import the opt-in alias
+sheet, which maps those names onto the same files:
+
+```ts
+import '@openmaic/renderer/picker-fonts.css';
+```
+
+It claims the four names for the whole page with no `unicode-range`: any text
+set in one of them renders with, and downloads, the whole self-hosted file
+(SourceHanSans is about 7.5 MB, SourceHanSerif about 10 MB). Leave it out if
+your page loads its own faces under these names.
 
 > **Runtime dependency — read this.** The `@font-face` `src` URLs point at an
 > external font host (`https://file.maic.chat/fonts/<name>.woff2`); the woff2

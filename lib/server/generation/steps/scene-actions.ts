@@ -6,14 +6,14 @@
  * POST /api/generate/scene-actions.
  */
 import { prepareVisionImages } from '../vision-images';
-import { callLLM } from '@/lib/ai/llm';
+import { createGenerationAiCall } from '../ai-call';
 import {
   generateSceneActions as generateActions,
   buildCompleteScene,
-  buildVisionUserContent,
   type SceneGenerationContext,
   type AgentInfo,
 } from '@openmaic/generation';
+import { isActionType } from '@openmaic/dsl';
 import type {
   SceneOutline,
   GeneratedSlideContent,
@@ -62,64 +62,13 @@ export async function generateSceneActions(
   ctx: StepContext,
 ): Promise<SceneActionsResult> {
   const { outline, allOutlines, content, stageId, agents, userProfile, languageDirective } = input;
-  const {
-    model: languageModel,
-    modelInfo,
-    modelString,
-    thinkingConfig,
-    serverManaged,
-  } = input.model;
+  const { modelString } = input.model;
   const { log } = ctx;
 
-  // Detect vision capability
-  const hasVision = !!modelInfo?.capabilities?.vision;
-
-  // AI call function (actions typically don't use vision, but kept for consistency)
-  const aiCall = async (
-    systemPrompt: string,
-    userPrompt: string,
-    images?: Array<{ id: string; src: string }>,
-  ): Promise<string> => {
-    if (images?.length && hasVision) {
-      const safeImages = await prepareVisionImages(images, log);
-      const result = await callLLM(
-        {
-          model: languageModel,
-          // A run cancels the call when it loses its lease or its course.
-          abortSignal: ctx.signal,
-          system: systemPrompt,
-          messages: [
-            {
-              role: 'user' as const,
-              content: buildVisionUserContent(userPrompt, safeImages),
-            },
-          ],
-          maxOutputTokens: modelInfo?.outputWindow,
-          maxRetries: 0,
-        },
-        'scene-actions',
-        undefined,
-        thinkingConfig,
-        { serverManaged },
-      );
-      return result.text;
-    }
-    const result = await callLLM(
-      {
-        model: languageModel,
-        abortSignal: ctx.signal,
-        system: systemPrompt,
-        prompt: userPrompt,
-        maxOutputTokens: modelInfo?.outputWindow,
-        maxRetries: 0,
-      },
-      'scene-actions',
-      undefined,
-      thinkingConfig,
-      { serverManaged },
-    );
-    return result.text;
-  };
+  const aiCall = createGenerationAiCall(input.model, 'scene-actions', {
+    abortSignal: ctx.signal,
+    resolveVisionImages: (images) => prepareVisionImages(images, log),
+  });
 
   // ── Build cross-scene context ──
   const allTitles = allOutlines.map((o) => o.title);
@@ -142,12 +91,28 @@ export async function generateSceneActions(
     | GeneratedInteractiveContent
     | GeneratedPBLContent;
 
-  const actions = await generateActions(outline, generationContent, aiCall, {
+  const actionOptions = {
     ctx: generationCtx,
     agents,
     userProfile,
     languageDirective,
+  };
+  const generated = await generateActions(outline, generationContent, aiCall, actionOptions);
+
+  // A model can invent an action type. The run's write boundary rejects a scene
+  // holding one and playback has no way to run it, so one invented action must
+  // not cost the whole scene: drop it and say so.
+  const known = generated.filter((action) => {
+    if (isActionType(action.type)) return true;
+    log.warn(`Dropping generated action with unknown type: ${JSON.stringify(action.type)}`);
+    return false;
   });
+  // Nothing usable left is the same as an empty response, which the generator
+  // already answers with its default actions.
+  const actions =
+    generated.length > 0 && known.length === 0
+      ? await generateActions(outline, generationContent, async () => '[]', actionOptions)
+      : known;
 
   log.info(`Generated ${actions.length} actions for: "${outline.title}"`);
 

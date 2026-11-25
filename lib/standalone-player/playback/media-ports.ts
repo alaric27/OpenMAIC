@@ -1,3 +1,4 @@
+import { createInteractiveMediaSession, mediaDocumentId } from '@/lib/interactive/media-bridge';
 /**
  * DOM side of the sequencer ports: the narration `<audio>` element, the slide
  * `<video>` elements, and the interactive scene's iframe channel.
@@ -44,6 +45,8 @@ function silentWavDataUri(): string {
 
 /** Extra time past a video's own duration before playback stops waiting for it. */
 const VIDEO_END_GRACE_MS = 3000;
+/** Maximum time to wait for play() when the clip has not started. */
+const VIDEO_START_TIMEOUT_MS = 60_000;
 /** Cap for a video whose duration is unknown. */
 const VIDEO_UNKNOWN_DURATION_CAP_MS = 60_000;
 
@@ -195,6 +198,7 @@ export class VideoRegistry {
     // Ends the wait timer and listeners as soon as the race settles, however
     // it settles (the clip ended, the cap passed, or the run was cancelled).
     const wait = new AbortController();
+    const waitControl = { signal: wait.signal, gate: control.gate };
     const abortWait = () => wait.abort();
     control.signal.addEventListener('abort', abortWait, { once: true });
     let stopWaiting = () => {};
@@ -212,7 +216,8 @@ export class VideoRegistry {
         await this.playOwn(video);
         return true;
       } catch (error) {
-        if (control.gate.paused || control.signal.aborted) return true;
+        if (wait.signal.aborted) return false;
+        if (control.gate.paused) return true;
         if (error instanceof DOMException && error.name === 'NotAllowedError' && !video.muted) {
           // Sound refused outside a gesture: muted playback is always allowed.
           video.muted = true;
@@ -228,14 +233,23 @@ export class VideoRegistry {
     this.active = video;
     try {
       video.currentTime = 0;
-      if (!(await start())) return;
+      let clearStartTimeout = () => {};
+      // play() remains pending until the browser has enough media to begin.
+      // Bound this phase as well, and keep the playback-duration cap separate.
+      const startTimeout = pausableDelay(VIDEO_START_TIMEOUT_MS, waitControl, (finish) => {
+        clearStartTimeout = finish;
+      });
+      const started = await Promise.race([
+        start(),
+        startTimeout.then(() => false),
+        ended.then(() => false),
+      ]);
+      clearStartTimeout();
+      if (!started || wait.signal.aborted) return;
       const capMs = Number.isFinite(video.duration)
         ? Math.min(video.duration * 1000 + VIDEO_END_GRACE_MS, MAX_VIDEO_WAIT_MS)
         : VIDEO_UNKNOWN_DURATION_CAP_MS;
-      await Promise.race([
-        ended,
-        pausableDelay(capMs, { signal: wait.signal, gate: control.gate }),
-      ]);
+      await Promise.race([ended, pausableDelay(capMs, waitControl)]);
     } finally {
       wait.abort();
       control.signal.removeEventListener('abort', abortWait);
@@ -306,11 +320,25 @@ export class VideoRegistry {
 export class WidgetChannel {
   private frame: HTMLIFrameElement | null = null;
   private loaded = false;
+  private mediaSession: ReturnType<typeof createInteractiveMediaSession> | null = null;
+  onMediaPlay: (() => void) | null = null;
+
+  pauseMedia(): void {
+    this.mediaSession?.pause();
+  }
   private queue: Array<Record<string, unknown>> = [];
 
   attach(frame: HTMLIFrameElement | null): void {
     if (frame === this.frame) return;
+    this.mediaSession?.dispose();
+    this.mediaSession = null;
     this.frame = frame;
+    const documentId = mediaDocumentId(frame?.srcdoc);
+    if (frame && documentId) {
+      this.mediaSession = createInteractiveMediaSession(frame, documentId, () =>
+        this.onMediaPlay?.(),
+      );
+    }
     this.loaded = false;
     this.queue = [];
   }

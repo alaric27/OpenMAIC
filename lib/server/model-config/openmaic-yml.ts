@@ -17,13 +17,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
 import { z } from 'zod';
+import { sandboxConfigurationSchema } from '@/lib/sandbox/config-schema';
 import {
   getSlot,
   isSlotId,
   slotRefusesThinkingEffort,
+  type SlotCapability,
   type SlotId,
 } from '@/lib/config/model-slots';
 import { getProviderPreset } from '@/lib/config/provider-presets';
+import { deploymentAuthorizedModels } from './model-authorization';
 import { retiredPresetReason } from '@/lib/config/preset-ids';
 import { VALID_EFFORTS, VALID_LEVELS, VALID_MODES } from '@/lib/server/model-routes';
 
@@ -117,12 +120,57 @@ export const providerOptionsSchema = z.record(
 
 export type ProviderOptions = z.infer<typeof providerOptionsSchema>;
 
+const SLOT_CAPABILITIES = [
+  'chat',
+  'tts',
+  'asr',
+  'image',
+  'video',
+  'webSearch',
+  'webFetch',
+  'document',
+] as const satisfies readonly SlotCapability[];
+
+const providerVoicesSchema = z
+  .array(
+    z
+      .object({
+        id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(256)
+          .refine(
+            (id) => !id.includes('::'),
+            'voice id must not contain the roster binding delimiter ::',
+          ),
+        name: z.string().trim().min(1).max(256),
+        language: z.string().trim().min(1).max(64).optional(),
+        gender: z.enum(['male', 'female', 'neutral']).optional(),
+      })
+      .strict(),
+  )
+  .min(1)
+  .max(1000)
+  .refine(
+    (voices) => new Set(voices.map((voice) => voice.id)).size === voices.length,
+    'voice ids must be unique',
+  );
+
 export const providerSchema = z
   .object({
     preset: z.string().min(1),
     apiKey: z.string().min(1).optional(),
     baseUrl: z.url().optional(),
     models: z.array(z.string().trim().min(1)).min(1).optional(),
+    /**
+     * Context windows the configuration declares for chat models the built-in
+     * catalogue does not describe (or, for a preset that distrusts the
+     * catalogue, describes only by a name collision). Catalogue metadata still
+     * wins for a provider the catalogue covers. Applied by compaction and the
+     * context budget check, never sent on the wire.
+     */
+    modelContextWindows: z.record(z.string().trim().min(1), z.number().int().positive()).optional(),
     /** HTTP proxy for this provider's requests. */
     proxy: z.url().optional(),
     /** Multi-part credentials for vendors that do not use a single key. */
@@ -133,6 +181,13 @@ export const providerSchema = z
      * settings view, so never a place for a key.
      */
     options: providerOptionsSchema.optional(),
+    voices: providerVoicesSchema.optional(),
+    /**
+     * Capabilities of its preset the account behind the key does not have,
+     * as the plan's vendor reported when the key was saved (a token plan tier
+     * without video, for example). The provider does not offer them.
+     */
+    unsupportedCapabilities: z.array(z.enum(SLOT_CAPABILITIES)).min(1).optional(),
   })
   .strict();
 
@@ -148,6 +203,7 @@ const fileSchema = z
       .optional(),
     /** The server's defaults: users may change them unless `lock` names them. */
     slots: z.record(z.string(), assignmentSchema).optional(),
+    sandbox: sandboxConfigurationSchema.optional(),
     lock: lockSchema.optional(),
     /** Whether users may add providers, keys and token plans of their own (default true). */
     allowUserKeys: z.boolean().optional(),
@@ -302,8 +358,44 @@ function crossCheck(
       }
       continue;
     }
+    if (provider.voices && !preset.capabilities.tts) {
+      issues.push(`providers.${id}.voices: only TTS presets support a voice catalogue`);
+    }
+    if (provider.options?.defaultVoice !== undefined) {
+      if (!provider.voices) {
+        issues.push(`providers.${id}.voices: required when options.defaultVoice is configured`);
+      }
+      const voice = provider.options.defaultVoice;
+      if (typeof voice !== 'string' || !voice.trim()) {
+        issues.push(`providers.${id}.options.defaultVoice: must be a nonblank string`);
+      } else if (provider.voices && !provider.voices.some((entry) => entry.id === voice.trim())) {
+        issues.push(
+          `providers.${id}.options.defaultVoice: must name a voice in the configured voices list`,
+        );
+      }
+    }
     if (preset.requiresBaseUrl && !provider.baseUrl) {
       issues.push(`providers.${id}.baseUrl: preset "${preset.id}" needs a baseUrl`);
+    }
+    const declared = provider.modelContextWindows;
+    if (declared && Object.keys(declared).length) {
+      const windowsAt = `providers.${id}.modelContextWindows`;
+      if (!preset.capabilities.chat) {
+        issues.push(`${windowsAt}: only chat providers support declared context windows`);
+      } else {
+        // A declared window applies to a model the provider serves: pinned in
+        // its model list or referenced from a chat slot. Anything else is
+        // configuration that can never take effect.
+        const served = new Set(deploymentAuthorizedModels(config, id, 'chat'));
+        for (const modelId of Object.keys(declared)) {
+          if (!served.has(modelId)) {
+            issues.push(
+              `${windowsAt}: ${shown(modelId, windowsAt)} is not a chat model this ` +
+                'provider serves; add it to models or reference it from a slot',
+            );
+          }
+        }
+      }
     }
   }
 
@@ -330,6 +422,10 @@ function crossCheck(
       issues.push(
         `${at}: provider ${shown(providerId, at)} (preset "${preset.id}") does not offer ${capability}`,
       );
+    } else if (provider.unsupportedCapabilities?.includes(capability)) {
+      issues.push(
+        `${at}: provider ${shown(providerId, at)} does not offer ${capability} on its account's plan`,
+      );
     }
   };
 
@@ -337,6 +433,7 @@ function crossCheck(
     const written = config.slots ?? {};
     config.lock.forEach((slot, index) => {
       const at = `lock.${index}`;
+      if (slot === 'sandbox') return;
       if (!isSlotId(slot)) {
         issues.push(`${at}: unknown slot ${shown(slot, at)}`);
       } else if (!Object.hasOwn(written, slot)) {

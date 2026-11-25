@@ -11,6 +11,7 @@ import { useSlotTTSProvidersConfig, useTTSSelection } from '@/lib/audio/use-tts-
 import { useAgentRegistry } from '@/lib/orchestration/registry/store';
 import { resolveAgentVoice, getSelectableProvidersWithVoices } from '@/lib/audio/voice-resolver';
 import { playBrowserTTSPreview } from '@/lib/audio/browser-tts-preview';
+import { useBrowserVoices } from '@/lib/audio/use-browser-voices';
 import { useAllVoiceProfiles } from '@/lib/audio/voxcpm-voices';
 import { resolveAgentVoiceOptions } from '@/lib/audio/agent-voice';
 import { VOXCPM_AUTO_VOICE_ID, VOXCPM_TTS_PROVIDER_ID } from '@/lib/audio/voxcpm';
@@ -132,7 +133,11 @@ function AgentVoicePill({
       const previewText = t('settings.ttsTestTextDefault');
 
       if (providerId === 'browser-native-tts') {
-        const { promise, cancel } = playBrowserTTSPreview({ text: previewText, voice: voiceId });
+        const { promise, cancel } = playBrowserTTSPreview({
+          text: previewText,
+          voice: voiceId,
+          locale,
+        });
         previewCancelRef.current = cancel;
         try {
           await promise;
@@ -409,7 +414,11 @@ function TeacherVoicePill({
       const previewText = t('settings.ttsTestTextDefault');
 
       if (providerId === 'browser-native-tts') {
-        const { promise, cancel } = playBrowserTTSPreview({ text: previewText, voice: voiceId });
+        const { promise, cancel } = playBrowserTTSPreview({
+          text: previewText,
+          voice: voiceId,
+          locale,
+        });
         previewCancelRef.current = cancel;
         try {
           await promise;
@@ -607,18 +616,9 @@ export function AgentBar() {
   const ttsEnabled = !!useTTSSelection();
 
   const [open, setOpen] = useState(false);
-  const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const browserVoices = useBrowserVoices();
   const { profiles: voiceProfiles } = useAllVoiceProfiles();
   const containerRef = useRef<HTMLDivElement>(null);
-
-  // Load browser native TTS voices
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.speechSynthesis) return;
-    const loadVoices = () => setBrowserVoices(speechSynthesis.getVoices());
-    loadVoices();
-    speechSynthesis.addEventListener('voiceschanged', loadVoices);
-    return () => speechSynthesis.removeEventListener('voiceschanged', loadVoices);
-  }, []);
 
   const allAgents = listAgents();
   const agents = allAgents.filter((a) => !a.isGenerated);

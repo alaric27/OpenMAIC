@@ -13,6 +13,13 @@ import {
   claimRulesScenario,
   forwardingScenario,
   fullClaimScenario,
+  guideCourseClaimScenario,
+  materialFolderClaimScenario,
+  unfiledOnlyMaterialClaimScenario,
+  emptyFoldersOnlyMaterialClaimScenario,
+  selfReassignMaterialFoldersScenario,
+  materialFolderAtomicityScenario,
+  rootedMaterialClaimScenario,
   type ClaimHarness,
   type ClaimScenarioPool,
 } from './_owner-claim-scenarios';
@@ -56,6 +63,10 @@ describe('claiming anonymous work (PGlite)', () => {
     await fullClaimScenario(harness);
   });
 
+  it('keeps every guide course across a claim; a late seed adds no second', async () => {
+    await guideCourseClaimScenario(harness);
+  });
+
   it('keeps nothing when a participant throws mid-claim', async () => {
     await atomicityScenario(harness);
   });
@@ -66,5 +77,29 @@ describe('claiming anonymous work (PGlite)', () => {
 
   it('refuses a stale request and forwards background work', async () => {
     await forwardingScenario(harness);
+  });
+
+  it('moves material folders by the course-folder rules, filed and Unfiled materials alike', async () => {
+    await materialFolderClaimScenario(harness);
+  });
+
+  it('moves an owner that has Unfiled materials only', async () => {
+    await unfiledOnlyMaterialClaimScenario(harness);
+  });
+
+  it('moves an owner that has empty material folders only', async () => {
+    await emptyFoldersOnlyMaterialClaimScenario(harness);
+  });
+
+  it('leaves a library reassigned onto its own owner unchanged', async () => {
+    await selfReassignMaterialFoldersScenario(harness);
+  });
+
+  it('keeps both material libraries as they were when the claim fails', async () => {
+    await materialFolderAtomicityScenario(harness);
+  });
+
+  it('keeps a material s reference root and re-keys its asset', async () => {
+    await rootedMaterialClaimScenario(harness);
   });
 });

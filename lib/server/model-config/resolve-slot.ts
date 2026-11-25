@@ -1,3 +1,4 @@
+import type { ConfiguredTTSVoice } from '@/lib/audio/types';
 /**
  * Slot resolution (RFC #1701, tracked in #1725).
  *
@@ -27,8 +28,8 @@ import {
   usesServerCredentials,
   selectsUpstreamModel,
 } from './model-authorization';
-import { PROVIDERS } from '@/lib/ai/providers';
-import { findModelById } from '@/lib/ai/model-aliases';
+import { getModelInfo } from '@/lib/ai/providers';
+import type { ProviderId } from '@/lib/types/provider';
 import { withoutThinkingEffort } from '@/lib/ai/thinking-config';
 import {
   getSlot,
@@ -81,10 +82,18 @@ export interface ResolvedModelTarget {
   proxy?: string;
   /** The provider's non-secret, provider-specific settings (openmaic.yml `options`). */
   options?: Record<string, string | number | boolean>;
+  voices?: ConfiguredTTSVoice[];
   /** The base URL is the provider's own, not the preset's or registry's. */
   customBaseUrl?: true;
   /** Absent: the provider's default model (never for chat). */
   modelId?: string;
+  /**
+   * The context window the configuration declared for this chat model
+   * (`modelContextWindows` on the provider). Catalogue metadata still wins for
+   * a provider the catalogue covers; a preset that distrusts the catalogue
+   * (`catalogue: false`) takes this over a name-colliding catalogue hit.
+   */
+  declaredContextWindow?: number;
 }
 
 export interface RequirementCheck {
@@ -216,7 +225,9 @@ function resolveTarget(
         : `${at}: the provider has an unknown preset`,
     );
   }
-  const target = preset.capabilities[capability];
+  const target = provider.unsupportedCapabilities?.includes(capability)
+    ? undefined
+    : preset.capabilities[capability];
   if (!target) {
     throw new SlotResolutionError(
       `${at}: the provider (preset "${preset.id}") does not offer ${capability}`,
@@ -256,11 +267,20 @@ function resolveTarget(
     ...(provider.apiKey !== undefined ? { apiKey: provider.apiKey } : {}),
     ...(provider.credentials !== undefined ? { credentials: provider.credentials } : {}),
     ...(provider.proxy !== undefined ? { proxy: provider.proxy } : {}),
+    ...(provider.voices !== undefined
+      ? { voices: provider.voices.map((voice) => ({ ...voice })) }
+      : {}),
     ...(provider.options !== undefined ? { options: { ...provider.options } } : {}),
     // A provider-only reference means the preset's own default (a token
     // plan's), else the registry's, which the adapter applies.
     ...(effectiveModel !== undefined ? { modelId: effectiveModel } : {}),
     ...(preset.trustsModelCatalogue === false ? { catalogue: false as const } : {}),
+    ...(capability === 'chat' &&
+    effectiveModel !== undefined &&
+    provider.modelContextWindows !== undefined &&
+    Object.hasOwn(provider.modelContextWindows, effectiveModel)
+      ? { declaredContextWindow: provider.modelContextWindows[effectiveModel] }
+      : {}),
   };
 }
 
@@ -274,15 +294,10 @@ export function checkRequirement(
     return { requirement, status: 'unknown' };
   }
   if (target.modelId === undefined) return { requirement, status: 'unknown' };
-  const registry = (PROVIDERS as Record<string, { models?: readonly ModelLike[] }>)[
-    target.registryId
-  ];
-  const model = findModelById(target.registryId, registry?.models, target.modelId);
+  const model = getModelInfo(target.registryId as ProviderId, target.modelId);
   const tools = model?.capabilities?.tools;
   return { requirement, status: tools === true ? 'met' : tools === false ? 'unmet' : 'unknown' };
 }
-
-type ModelLike = { id: string; capabilities?: { tools?: boolean } };
 
 /**
  * The providers whose preset this build retired (RETIRED_PRESETS), as the

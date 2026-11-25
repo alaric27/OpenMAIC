@@ -6,19 +6,37 @@ Thank you for your interest in contributing to OpenMAIC! This guide will help yo
 
 | Contribution type | What to do |
 | --- | --- |
-| **Bug fix** | Open a PR directly (link the issue if one exists) |
-| **Extending existing features** (e.g. adding a new model provider, new TTS engine) | Open a PR directly |
-| **New feature or architecture change** | Start a [GitHub Discussion](https://github.com/THU-MAIC/OpenMAIC/discussions) or ask in [Discord](https://discord.gg/p8Pf2r3SaG) **before** opening a PR |
-| **Design / UI change** | Discuss in a GitHub Discussion or Discord first — include mockups or screenshots |
+| **Bug report** | Open an issue with the [Bug Report](https://github.com/THU-MAIC/OpenMAIC/issues/new?template=bug_report.yml) template |
+| **Bug fix or small change** | Open a PR directly (link the issue if one exists) |
+| **Extending existing features** (e.g. adding a new model provider, new TTS engine) | Open a PR directly; see [Provider and Vendor Integrations](#provider-and-vendor-integrations) |
+| **New feature or architecture change** | Needs an accepted issue or a [Discussion](https://github.com/THU-MAIC/OpenMAIC/discussions/categories/ideas) **before** opening a PR |
+| **Feature idea** | Start a thread in [Discussions → Ideas](https://github.com/THU-MAIC/OpenMAIC/discussions/new?category=ideas) |
+| **Design / UI change** | Discuss in a GitHub Discussion first — include mockups or screenshots |
 | **Refactor-only PR** | Not accepted unless a maintainer explicitly requests it |
 | **Documentation** | Open a PR directly |
-| **Question** | Ask in [Discord](https://discord.gg/p8Pf2r3SaG) |
+| **Question** | Ask in [Discussions → Q&A](https://github.com/THU-MAIC/OpenMAIC/discussions/new?category=q-a) so the answer stays searchable; [Discord](https://discord.gg/p8Pf2r3SaG) is there for chat |
+
+Issues are for bugs. Feature ideas and questions go to Discussions; an idea that maintainers accept becomes an issue.
+
+## Issue Lifecycle
+
+Every open issue is untriaged until a maintainer looks at it, then gets one of these outcomes:
+
+| You see | It means |
+| --- | --- |
+| An assignee | Accepted, and someone is working on it or plans to |
+| `help wanted` | Accepted and open to outside contributors: comment to claim it |
+| `status:needs-info` | A maintainer asked a question. Replying removes the label; with no reply from the reporter within **14 days**, the issue is closed as not planned and can be reopened once the information is added |
+| `status:blocked` | Waiting on maintainers, usually a design decision or an RFC |
+| Closed as duplicate or not planned | Not an issue to work on here; ideas move to Discussions → Ideas, questions to Discussions → Q&A |
+
+An issue with an open linked PR counts as in progress. An assigned issue with no activity for 60 days gets a reminder, and a `help wanted` issue with no activity for 90 days is closed. Maintainers describe the full process in [MAINTAINING.md](MAINTAINING.md).
 
 ## Claiming Issues
 
 To avoid duplicate effort, please **comment on an issue** to claim it before you start working. A maintainer will assign you.
 
-- If **no PR or meaningful update** (WIP commit, progress comment) appears within **1 day**, the issue may be reassigned to someone else.
+- If **no PR or meaningful update** (WIP commit, progress comment) appears within **7 days**, the issue may be reassigned to someone else.
 - If you see an issue already assigned, reach out to the assignee first to coordinate — you may be able to collaborate or split the work.
 - If you can no longer work on a claimed issue, please leave a comment so others can pick it up.
 
@@ -113,12 +131,23 @@ If you have not completed local verification, keep your PR in **Draft** status. 
 
 ### PR Guidelines
 
-- **Every PR must link to an issue** — use `Closes #123` or `Fixes #456` in the PR description. If no issue exists yet, create one first. PRs without a linked issue will not be reviewed.
+- **Link the issue if one exists** — use `Closes #123` or `Fixes #456` in the PR description. Bug fixes and small changes do not need an issue first; new features and architecture changes need an accepted issue or a Discussion.
 - **Keep PRs focused** — one concern per PR; do not mix unrelated changes
 - **Describe what and why** — fill out the [PR template](.github/pull_request_template.md)
 - **Include screenshots** — for UI changes, show before/after
 - **Ensure CI passes** before requesting review
 - **All UI text must be internationalized (i18n)** — do not hardcode user-facing strings
+
+### Review Threads
+
+Every non-draft PR gets an automated Codex review on each push; a draft is not reviewed until it is marked ready. The review follows the rules in [AGENTS.md](AGENTS.md). Its findings are advisory, and a maintainer makes the final review and merge decision.
+
+`main` only accepts a PR once every review thread is resolved, so handling the threads is part of getting a PR merged:
+
+- **Answer every thread before resolving it.** Either fix the finding and reply with the commit, or reply with why it stays (tracked in another issue or PR, or a deliberate trade-off). Do not resolve a thread silently.
+- **Outdated threads too.** When a later change removes or rewrites the code a thread points at, reply briefly to say so and resolve it.
+- **Keep the PR in draft while it is still changing.** Every push to a ready PR triggers a new review and dismisses earlier approvals; mark it ready once the changes are in.
+- **A stuck review does not block.** If the Codex review fails, or keeps running for about 20 minutes on the same commit, the maintainer decides from CI and their own review.
 
 ## Commit Message Convention
 
@@ -176,6 +205,13 @@ App versions (the `vX.Y.Z` tags and GitHub Releases) say what a release is about
 
 Every release has a `CHANGELOG.md` section, and the GitHub Release title names its headline.
 
+## Provider and Vendor Integrations
+
+PRs that add or extend a model, media, search or other third-party provider (`area:providers`) get an accept or decline decision from a maintainer within **7 days**, before any code review. To help that decision, the PR should:
+
+- **Show a real call** against the provider (sanitized output, logs or a screenshot), not only mocked tests
+- **Say who will maintain the integration** when the provider's API changes
+
 ## AI-Assisted PRs 🤖
 
 PRs built with AI tools (Codex, Claude, Cursor, etc.) are welcome! We just ask for transparency and self-review:
@@ -184,7 +220,7 @@ PRs built with AI tools (Codex, Claude, Cursor, etc.) are welcome! We just ask f
 - **AI-review your own code first** — before requesting maintainer review, run an AI code review (e.g. Claude, Codex, Copilot) on your changes and address the findings. This is **required** for AI-assisted PRs to avoid dumping large amounts of unreviewed generated code on maintainers.
 - **You are responsible for what you submit** — understand the code, not just the prompt.
 
-Every non-draft PR also gets an automated Codex review on each push. Treat its findings as advisory: fix what is valid, or reply with your reasoning. A maintainer still makes the final review and merge decision.
+Every non-draft PR also gets an automated Codex review on each push; see [Review Threads](#review-threads) for how to handle its findings.
 
 AI-assisted PRs are held to the same quality standard as any other PR. Community members are also encouraged to leave constructive feedback on any PR — peer review helps everyone improve.
 
@@ -211,7 +247,7 @@ Use the [Bug Report](https://github.com/THU-MAIC/OpenMAIC/issues/new?template=bu
 
 ## Requesting Features
 
-Use the [Feature Request](https://github.com/THU-MAIC/OpenMAIC/issues/new?template=feature_request.yml) issue template. For larger features, please open a [Discussion](https://github.com/THU-MAIC/OpenMAIC/discussions) first.
+Start a thread in [Discussions → Ideas](https://github.com/THU-MAIC/OpenMAIC/discussions/new?category=ideas) with the problem you want solved and what a good outcome looks like. Issues are reserved for bugs and for ideas that maintainers have accepted.
 
 ## Security Vulnerabilities
 

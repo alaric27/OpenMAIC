@@ -2,12 +2,19 @@ import type { NextConfig } from 'next';
 import { PHASE_PRODUCTION_BUILD } from 'next/constants';
 
 const nextConfig: NextConfig = {
+  // Keep Next dev from creating or rewriting repository agent instructions.
+  agentRules: false,
   output: 'standalone',
+  env: {
+    INTERACTIVE_ASSET_BASE_URL:
+      process.env.INTERACTIVE_ASSET_BASE_URL?.trim() || '/vendor/interactive',
+  },
   outputFileTracingIncludes: {
     '/*': [
       'lib/server/agent-runtime/import-pptx-worker.mjs',
       'skills/openmaic/**',
       'skills/agent-runtime/**',
+      'skills/classroom/**',
       // Loaded through a runtime-only `import('undici')` (see the LLM
       // dispatcher in lib/ai/providers.ts and the Google proxy transport), so
       // the output tracer never sees it and standalone builds ship without it.
@@ -45,6 +52,24 @@ const nextConfig: NextConfig = {
     // egress cannot resolve their SDK in the shipped deployment.
     '@aws-sdk/client-s3',
     '@aws-sdk/s3-request-presigner',
+    // Native canvas backend for server-side PDF page rendering (DeepSeek OCR
+    // figure crops). Its platform binary is a `.node` file that cannot be
+    // bundled; it is loaded natively from node_modules instead.
+    '@napi-rs/canvas',
+  ],
+  // Testing the app on a phone over the LAN: Next serves dev resources only to
+  // the origins listed here, and a page from another host renders but cannot
+  // hydrate — it looks like a page whose buttons do nothing. Set
+  // `OPENMAIC_DEV_ORIGINS=192.168.1.5,dev.example.com` for those sessions;
+  // unset in a normal `pnpm dev`, where the default (localhost) is right.
+  // The local names stay on the list: setting the variable must ADD a phone's
+  // address, never take the developer's own away.
+  allowedDevOrigins: [
+    'localhost',
+    '127.0.0.1',
+    ...[
+      ...(process.env.OPENMAIC_DEV_ORIGINS ?? '').split(',').map((origin) => origin.trim()),
+    ].filter(Boolean),
   ],
   experimental: {
     proxyClientMaxBodySize: '200mb',
@@ -54,6 +79,13 @@ const nextConfig: NextConfig = {
     const frameAncestors = extraAncestors ? `'self' ${extraAncestors}` : "'self'";
 
     return [
+      {
+        source: '/vendor/interactive/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+        ],
+      },
       {
         source: '/(.*)',
         headers: [
